@@ -66,4 +66,8 @@ export interface LayaDecisionProviderOptions {
   model: string
   /** Optional checkpoint subfolder within the HuggingFace repository. */
   modelSubfolder?: string
+  /** Hugging Face hub cache directory the worker resolves `model` from; passed to it as `HF_HUB_CACHE`. */
+  hubCacheDir?: string
+  /** Optional synchronous availability override (e.g. for mock/test environments). */
+  available?: () => boolean
 }

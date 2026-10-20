@@ -8,6 +8,7 @@ import LlmRuntime, {
   createUserMessage,
   isAgentLoopRequest,
   LlmAdapter,
+  LlmError,
   resolveRetryPolicy,
 } from '@deepseek-ai/dsh-llm'
 import type {
@@ -48,12 +49,17 @@ interface AdapterOptions {
   readonly activeFailureCode?: string
   readonly failedProbes?: ReadonlySet<string>
   readonly emptyProbes?: ReadonlySet<string>
+  /** Probes that stream only reasoning, then end abnormally once the probe token budget runs out. */
+  readonly reasoningOnlyProbes?: ReadonlySet<string>
   readonly agentFailures?: Readonly<Record<string, number>>
   readonly blockProbes?: boolean
+  /** Throw this code from `prepareCall` for the named model. */
+  readonly prepareFailure?: (model: string) => string | undefined
 }
 
 class FailoverAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
+  readonly prepareAttempts: string[] = []
   readonly probesEntered = Promise.withResolvers<undefined>()
   probeAbortCount = 0
   private activeFailures: number
@@ -78,6 +84,13 @@ class FailoverAdapter extends LlmAdapter {
 
   override providerRetryPolicy(_provider: string): ResolvedRetryPolicy {
     return this.retryPolicy
+  }
+
+  override async prepareCall(provider: string, model: string, signal?: AbortSignal) {
+    this.prepareAttempts.push(model)
+    const code = this.options.prepareFailure?.(model)
+    if (code !== undefined) throw new LlmError('route unavailable', code)
+    return super.prepareCall(provider, model, signal)
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -114,6 +127,12 @@ class FailoverAdapter extends LlmAdapter {
     if (!agentRequest && this.options.emptyProbes?.has(options.model) === true) {
       yield { type: 'usage', usage: { inputTokens: 5, outputTokens: 0 } }
       yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
+    if (!agentRequest && this.options.reasoningOnlyProbes?.has(options.model) === true) {
+      yield { type: 'block-start', index: 0, blockType: 'reasoning' }
+      yield { type: 'reasoning-delta', index: 0, text: 'Plan: reverse the bytes with toReversed.' }
+      yield failure('PI_AI_ERROR')
       return
     }
     if (agentRequest && options.model === 'active') {
@@ -254,6 +273,58 @@ function requestRoutes(adapter: FailoverAdapter): Array<{ model: string; agentLo
 }
 
 describe('live model failover', () => {
+  it.each(['UNKNOWN_MODEL', 'MODEL_UNSUPPORTED', 'UNSUPPORTED_REASONING_EFFORT'])('recovers from prepare-time %s before a request header exists', async (code) => {
+    const adapter = new FailoverAdapter({
+      activeFailures: 0,
+      prepareFailure: model => model === 'active' ? code : undefined,
+    })
+    const { ctx } = await harness(new SelectingProvider(), adapter, { triggerCodes: ['UNKNOWN_MODEL', 'MODEL_UNSUPPORTED', 'UNSUPPORTED_REASONING_EFFORT', 'RATE_LIMIT', 'SERVER'] })
+    const agent = await start(ctx, `prepare-${code}`)
+    await agent.whenIdle()
+    expect(agent.session.requestHeader()?.config.model).toBe('candidate-b')
+    expect(agent.session.deriveMessages().at(-1)?.role).toBe('assistant')
+  })
+
+  it('exhausts prepare-failing routes without retrying a cached recovery forever', async () => {
+    const adapter = new FailoverAdapter({
+      activeFailures: 0,
+      prepareFailure: () => 'UNKNOWN_MODEL',
+    })
+    const { ctx } = await harness(new SelectingProvider(), adapter, { triggerCodes: ['UNKNOWN_MODEL', 'MODEL_UNSUPPORTED', 'UNSUPPORTED_REASONING_EFFORT', 'RATE_LIMIT', 'SERVER'] })
+    const agent = await start(ctx, 'prepare-exhausted')
+    await agent.whenIdle()
+    expect(adapter.prepareAttempts).toEqual(['active', 'candidate-a', 'candidate-b'])
+    expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')).toMatchObject({
+      data: { reason: { kind: 'error', error: { code: 'UNKNOWN_MODEL' } } },
+    })
+  })
+
+  it('restores the original route after an in-turn recovery', async () => {
+    const adapter = new FailoverAdapter()
+    const { ctx } = await harness(new SelectingProvider(), adapter)
+    const agent = await start(ctx, 'temporary-recovery')
+    await agent.whenIdle()
+    expect(agent.session.requestHeader()?.config.model).toBe('candidate-b')
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Next turn' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+    expect(requestRoutes(adapter).at(-1)).toEqual({ model: 'active', agentLoop: true })
+  })
+
+  it('honors an explicit route switch after a start-race winner', async () => {
+    const adapter = new FailoverAdapter({ activeFailures: 0 })
+    const { ctx } = await harness(new SelectingProvider(), adapter, { raceOnStart: true })
+    const agent = await start(ctx, 'explicit-route-switch')
+    await agent.whenIdle()
+    const disposeSwitch = ctx.on('agent/request', async (_payload, next) => ({ ...await next(), model: 'user-choice' }))
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Switch route' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+    disposeSwitch()
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Keep route' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+    expect(requestRoutes(adapter).slice(-2)).toEqual([
+      { model: 'user-choice', agentLoop: true }, { model: 'user-choice', agentLoop: true },
+    ])
+  })
   it('races candidates before the first request and keeps the winner sticky across turns', async () => {
     const provider = new SelectingProvider({ choice: 'candidate-b' })
     const adapter = new FailoverAdapter({ activeFailures: 0 })
@@ -531,6 +602,47 @@ describe('live model failover', () => {
     await agent.whenIdle()
 
     expect(provider.requests).toHaveLength(0)
+    expect(agent.session.requestHeader()?.config.model).toBe('candidate-b')
+  })
+
+  it('walks past a fully dead first probe window to a healthy route later in the list', async () => {
+    const provider = new SelectingProvider()
+    const adapter = new FailoverAdapter({ failedProbes: new Set(['candidate-a', 'candidate-b']) })
+    const { ctx } = await harness(provider, adapter, {
+      maxCandidates: 2,
+      candidates: [
+        { provider: 'mock', model: 'candidate-a' },
+        { provider: 'mock', model: 'candidate-b' },
+        { provider: 'mock', model: 'candidate-c' },
+      ],
+    })
+    const agent = await start(ctx, 'jev-later-window')
+
+    await agent.whenIdle()
+
+    expect(requestRoutes(adapter)).toEqual([
+      { model: 'active', agentLoop: true },
+      { model: 'candidate-a', agentLoop: false },
+      { model: 'candidate-b', agentLoop: false },
+      { model: 'candidate-c', agentLoop: false },
+      { model: 'candidate-c', agentLoop: true },
+    ])
+    expect(agent.session.snapshotEvents().some(event => event.type === 'llm/retry')).toBe(false)
+    expect(agent.session.requestHeader()?.config.model).toBe('candidate-c')
+  })
+
+  it('treats a reasoning-only probe cut off by its token budget as a live route', async () => {
+    const provider = new SelectingProvider()
+    const adapter = new FailoverAdapter({
+      failedProbes: new Set(['candidate-a']),
+      reasoningOnlyProbes: new Set(['candidate-b']),
+    })
+    const { ctx } = await harness(provider, adapter)
+    const agent = await start(ctx, 'jev-reasoning-probe')
+
+    await agent.whenIdle()
+
+    expect(agent.session.snapshotEvents().some(event => event.type === 'llm/retry')).toBe(false)
     expect(agent.session.requestHeader()?.config.model).toBe('candidate-b')
   })
 

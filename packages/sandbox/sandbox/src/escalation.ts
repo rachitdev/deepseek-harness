@@ -19,9 +19,17 @@
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { SandboxMode } from './index.ts'
 
+/** Every supported sandbox mode in the capability seam. */
+export const SANDBOX_MODES: readonly SandboxMode[] = ['read-only', 'workspace-write', 'danger-full-access']
+
+function isSandboxMode(mode: string): mode is SandboxMode {
+  return (SANDBOX_MODES as readonly string[]).includes(mode)
+}
+
 /**
  * The strictly-wider table: what a call whose effective mode is the key may
- * escalate TO. Checked at EXECUTION, never baked into a tool schema — the
+ * escalate TO. A supported narrower target instead restricts the one call.
+ * Checked at EXECUTION, never baked into a tool schema — the
  * schema's enum is {@link ESCALATION_TARGETS}, because schemas are
  * registry-global while the effective mode is per-call truth.
  */
@@ -30,15 +38,27 @@ export const WIDER_MODES: Record<string, readonly SandboxMode[]> = {
   'workspace-write': ['danger-full-access'],
 }
 
+function widerModesOf(mode: string): readonly SandboxMode[] {
+  return Object.hasOwn(WIDER_MODES, mode) ? (WIDER_MODES[mode] ?? []) : []
+}
+
+function isNarrower(mode: SandboxMode, effectiveMode: SandboxMode): boolean {
+  return widerModesOf(mode).includes(effectiveMode)
+}
+
+function isWider(mode: SandboxMode, effectiveMode: SandboxMode): boolean {
+  return widerModesOf(effectiveMode).includes(mode)
+}
+
 /**
- * The closed escalation-target vocabulary — every mode a call could ever
- * escalate TO (`read-only` is the floor; nothing escalates to it). Advertised
- * whenever the mounted capability confines: cutting the enum down to the modes
- * wider than the composition's DEFAULT would strand a session whose effective
- * mode sits below it (a `danger-full-access` default would advertise nothing
- * while a narrower-switched session stays confined with no lever).
+ * The closed mode vocabulary a confined call may name in `sandbox_permissions`.
+ * `read-only` is included because narrowing to it is valid and needs no
+ * approval. Wider targets stay in the enum even when the deployment default is
+ * already wide: a session that later switches narrower must still be able to
+ * name a valid wider mode. Execution, not this list, decides whether the named
+ * mode is a repeat, a narrowing, or a widening.
  */
-export const ESCALATION_TARGETS: readonly SandboxMode[] = ['workspace-write', 'danger-full-access']
+export const ESCALATION_TARGETS: readonly SandboxMode[] = ['read-only', 'workspace-write', 'danger-full-access']
 
 /**
  * Validate the escalation argument pairing a tool schema cannot express:
@@ -93,7 +113,45 @@ export function escalationHintMarker(subject: string): string {
  * @returns the parameter description, exactly as the model sees it.
  */
 export function sandboxPermissionsDescription(subject: string): string {
-  return `The narrowest wider sandbox mode for a one-shot retry of the exact ${subject} the sandbox just denied; the retry asks the user for approval.`
+  return `Sandbox mode for this one ${subject}. A narrower mode, including read-only, confines the ${subject} without approval. A wider mode is a one-shot retry of the exact ${subject} the sandbox just denied; the retry asks the user for approval.`
+}
+
+/**
+ * Remove a same-turn escalation hint from model-facing text. The marker may be
+ * its own line or inline in a job detail. Other sandbox markers stay.
+ * @param text - tool or job text that may contain {@link escalationHintMarker}.
+ * @returns the same text without the escalation-available marker.
+ */
+export function withoutEscalationHint(text: string): string {
+  return text
+    .replace(/\[sandbox: escalation available — retry this exact \S+ once with sandbox_permissions[^\]]*\]/gu, '')
+    .replace(/[ \t]{2,}/gu, ' ')
+    .replace(/;[ \t]*;[ \t]*/gu, '; ')
+    .replace(/[ \t]+\n/gu, '\n')
+    .replace(/\n{3,}/gu, '\n\n')
+    .trim()
+}
+
+/**
+ * Strip the escalation hint from text blocks when approval policy is `never`.
+ * Non-text blocks are unchanged. Returns `undefined` when nothing changed so
+ * callers can preserve the original content array.
+ * @param blocks - rendered tool content.
+ * @param omit - whether this session must not see the retry hint.
+ * @returns replacement blocks, or `undefined` when `omit` is false or no hint is present.
+ */
+export function mapTextWithoutEscalationHint<T extends { readonly type: string; readonly text?: string }>(
+  blocks: readonly T[],
+  omit: boolean,
+): T[] | undefined {
+  if (!omit) return undefined
+  let changed = false
+  const next = blocks.map((block) => {
+    if (block.type !== 'text' || block.text === undefined || !block.text.includes('[sandbox: escalation available')) return block
+    changed = true
+    return { ...block, text: withoutEscalationHint(block.text) }
+  })
+  return changed ? next : undefined
 }
 
 /**
@@ -159,22 +217,28 @@ export interface EscalationRequest {
 }
 
 /**
- * Resolve a sandbox permission request before execution. Repeating the call's
- * effective mode returns it without approval. A strictly wider mode requires
- * approval and applies only to this call. Narrower or unsupported targets,
- * missing approval services or agents for widening, and non-grant outcomes
- * throw before execution.
+ * Resolve a sandbox permission request before execution. Repeating or
+ * narrowing the effective mode applies to this call without approval. A
+ * strictly wider mode requires approval and applies only to this call.
+ * Unsupported targets, missing approval services or agents for widening,
+ * and non-grant outcomes throw before execution.
  * @param request - the escalation to judge (see {@link EscalationRequest}).
  * @param approval - the approval ingredients the tool holds (see {@link EscalationApproval}).
  * @returns the granted mode, consumed by the one call that asked.
  */
 export async function approveEscalation<A, C>(request: EscalationRequest, approval: EscalationApproval<A, C>): Promise<SandboxMode> {
-  const { requestedMode: mode, effectiveMode, justification, subject } = request
+  const { requestedMode: mode, justification, subject } = request
+  const effectiveMode = request.effectiveMode as string
+  if (!isSandboxMode(mode)) {
+    throw new Error(`unsupported sandbox permission mode "${mode}"`)
+  }
+  if (!isSandboxMode(effectiveMode)) {
+    throw new Error(`unsupported current sandbox mode "${effectiveMode}"`)
+  }
   if (mode === effectiveMode) return effectiveMode
-  // Strict widening is an EXECUTION check against the call's effective mode —
-  // deliberately not a schema constraint (the enum is the closed target
-  // vocabulary; the effective mode is per-call truth).
-  if (!(WIDER_MODES[effectiveMode] ?? []).includes(mode as SandboxMode)) {
+  // Only widening requires consent; a narrower requested mode confines this call.
+  if (isNarrower(mode, effectiveMode)) return mode
+  if (!isWider(mode, effectiveMode)) {
     throw new Error(`sandbox escalation to "${mode}" is not strictly wider than this call's current "${effectiveMode}" mode`)
   }
   if (approval.approver === undefined) {
@@ -199,7 +263,7 @@ export async function approveEscalation<A, C>(request: EscalationRequest, approv
   switch (outcome) {
     // The schema enum already pinned `mode` to the closed target vocabulary;
     // the check above proved it is strictly wider.
-    case 'allowed-once': return mode as SandboxMode
+    case 'allowed-once': return mode
     case 'rejected': throw new Error(`the user rejected escalating this ${subject} to "${mode}"; it stays denied, so stop and explain instead of working around it`)
     case 'cancelled': throw new Error(`approval for escalating to "${mode}" was cancelled`)
     case 'unavailable': throw new Error(`sandbox escalation to "${mode}" requires approval, but no approval channel is available`)

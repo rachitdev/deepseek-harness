@@ -32,7 +32,7 @@ import type { JobId, JobRegistry, JobView } from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-shell-env'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { ESCALATION_TARGETS, approveEscalation, sandboxPermissionsDescription, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import { ESCALATION_TARGETS, approveEscalation, mapTextWithoutEscalationHint, sandboxPermissionsDescription, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import type { ShellExecRequest, ShellExecSpec, ShellExecution, ShellRunResult } from '@deepseek-ai/dsh-shell'
 import { parseExitStatus } from '@deepseek-ai/dsh-shell'
@@ -226,6 +226,12 @@ export function apply(ctx: Context, config: Config = {}): void {
   /** Resolve the complete standing policy for this call when a confining executor is mounted. */
   const resolveSandboxPolicy = (exec: ToolExecution): SandboxExecutionPolicy | undefined =>
     sandboxPolicy?.resolve(exec.agent === undefined ? {} : { session: exec.agent.session })
+  /** Modes named in a denial hint. `never` rejects every widening, so the hint is omitted. */
+  const escalationHintModes = (exec: ToolExecution): readonly SandboxMode[] => {
+    const agent = exec.agent
+    if (agent !== undefined && ctx.get('approval')?.policyOf(agent.session) === 'never') return []
+    return escalationModes
+  }
 
   /* jscpd:ignore-start -- deliberate mirror of dsh-tool-bash's escalation resolver (pwsh-tool-and-executor Agent Note). */
   /**
@@ -295,7 +301,7 @@ export function apply(ctx: Context, config: Config = {}): void {
               proc = await ctx.shell.execute({ ...spec, signal })
               return proc
             },
-            started => processOutcome(started, escalationModes),
+            started => processOutcome(started, escalationHintModes(exec)),
           )
           return {
             done: hooks.done,
@@ -499,6 +505,11 @@ export function apply(ctx: Context, config: Config = {}): void {
               : renderPwshResult(value as RenderablePwshResult, escalationModes),
         }],
         presentationMeta: (_args, value) => ({ cwd: value.cwd }),
+      },
+      finalizeContent(exec, result) {
+        const agent = exec.agent
+        const omit = agent !== undefined && ctx.get('approval')?.policyOf(agent.session) === 'never'
+        return mapTextWithoutEscalationHint(result.content, omit)
       },
       /* jscpd:ignore-start -- the execute path mirrors dsh-tool-bash's by design (see the pwsh-tool-and-executor Agent Note). */
       async execute(args: PwshToolArgs, exec) {

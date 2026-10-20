@@ -198,7 +198,7 @@ describe('ui-settings-general shell', () => {
     expect(onShutdown).toBeDefined()
     onShutdown?.()
     await vi.waitFor(() => { expect(close).toHaveBeenCalledTimes(1) })
-    expect(fetchMock).toHaveBeenCalledWith('/__dsh/shutdown', { method: 'POST' })
+    expect(fetchMock).toHaveBeenCalledWith('/__dsh/shutdown', { method: 'POST', headers: { Accept: 'text/plain' } })
   })
 
   it('unregisters the shell and collapses every child slot when its row unloads', async ({ start }) => {

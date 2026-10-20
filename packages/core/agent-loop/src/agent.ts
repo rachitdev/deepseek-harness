@@ -38,6 +38,7 @@ import { RuntimeContextProjection } from './runtime-context.ts'
 import { AssistantStreamAttempt } from './assistant-stream.ts'
 import { SystemPromptProjection } from './runtime-context.ts'
 import { executeToolCalls } from './tool-calls.ts'
+import { MAX_PREPARE_ATTEMPTS } from './constants.ts'
 
 type Phase =
   | { kind: 'idle'; lastTurn: number }
@@ -460,7 +461,26 @@ export class ReactLoopAgent implements Agent {
         }
         signal.throwIfAborted()
       } catch (error: unknown) {
-        if (!started) throw error
+        if (!started) {
+          const failure = error instanceof LlmError ? error.failure : undefined
+          if (failure !== undefined) {
+            const action = await this.dispatch.waterfall(
+              'agent/request-error', {
+                turn,
+                step,
+                provider: request.provider,
+                model: request.model,
+                failure,
+                retryPolicy: preparedCall?.retryPolicy,
+                signal,
+              },
+              () => Promise.resolve<RequestErrorAction>(undefined),
+            )
+            signal.throwIfAborted()
+            if (action?.kind === 'retry') continue
+          }
+          throw error
+        }
         try {
           if (signal.aborted) {
             const content = live.interruptedBlocks()
@@ -513,6 +533,7 @@ export class ReactLoopAgent implements Agent {
               turn,
               step,
               provider: request.provider,
+              model: request.model,
               failure: finish.failure,
               retryPolicy: preparedCall?.retryPolicy,
               signal,
@@ -590,7 +611,7 @@ export class ReactLoopAgent implements Agent {
           ...maxTokens === undefined ? {} : { maxTokens },
         },
     ))
-    const proposedConfig = await this.dispatch.waterfall(
+    let proposedConfig = await this.dispatch.waterfall(
       'agent/request', { turn, step, signal },
       () => Promise.resolve(seedConfig),
     )
@@ -598,18 +619,39 @@ export class ReactLoopAgent implements Agent {
     if (!proposedConfig.provider || !proposedConfig.model) {
       throw new Error(`agent "${this.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or supply both via the agent/request waterfall`)
     }
-    let config: LlmCallConfig
-    let preparedCall: PreparedLlmCall | undefined
-    try {
-      preparedCall = await this.loopCtx.llm.prepareCall(proposedConfig, signal)
-      config = preparedCall.config
-    } catch (error: unknown) {
-      // Middleware may serve an unregistered route; terminal dispatch still requires an adapter.
-      if (!(error instanceof LlmError) || error.code !== 'NO_ADAPTER') throw error
-      config = proposedConfig
+    for (let prepareAttempt = 0; prepareAttempt < MAX_PREPARE_ATTEMPTS; prepareAttempt += 1) {
+      try {
+        const preparedCall = await this.loopCtx.llm.prepareCall(proposedConfig, signal)
+        signal.throwIfAborted()
+        return { config: preparedCall.config, preparedCall }
+      } catch (error: unknown) {
+        if (error instanceof LlmError && error.code === 'NO_ADAPTER') {
+          signal.throwIfAborted()
+          return { config: proposedConfig }
+        }
+        if (!(error instanceof LlmError)) throw error
+        const action = await this.dispatch.waterfall(
+          'agent/request-error', {
+            turn,
+            step,
+            provider: proposedConfig.provider,
+            model: proposedConfig.model,
+            failure: error.failure,
+            retryPolicy: undefined,
+            signal,
+          },
+          () => Promise.resolve<RequestErrorAction>(undefined),
+        )
+        signal.throwIfAborted()
+        if (action?.kind !== 'retry') throw error
+        proposedConfig = await this.dispatch.waterfall(
+          'agent/request', { turn, step, signal },
+          () => Promise.resolve(seedConfig),
+        )
+        signal.throwIfAborted()
+      }
     }
-    signal.throwIfAborted()
-    return { config, ...preparedCall === undefined ? {} : { preparedCall } }
+    throw new Error(`agent "${this.id}": prepare request exceeded ${MAX_PREPARE_ATTEMPTS} attempts`)
   }
 
   /** Log the resolved envelope and derive a frozen request from the admitted surface. */

@@ -9,12 +9,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   ESCALATION_TARGETS,
+  SANDBOX_MODES,
   WIDER_MODES,
   approveEscalation,
   escalationHintMarker,
+  mapTextWithoutEscalationHint,
   sandboxDenialMarker,
   sandboxPermissionsDescription,
   validateEscalationArgs,
+  withoutEscalationHint,
 } from '@deepseek-ai/dsh-sandbox'
 import type { EscalationApprover, EscalationOutcome } from '@deepseek-ai/dsh-sandbox'
 
@@ -25,8 +28,8 @@ describe('the strictly-wider ladder', () => {
     expect(WIDER_MODES['danger-full-access']).toBeUndefined()
   })
 
-  it('the target enum is the closed set every session could escalate TO (read-only is the floor)', () => {
-    expect(ESCALATION_TARGETS).toEqual(['workspace-write', 'danger-full-access'])
+  it('the target enum includes read-only so a wider session can narrow, plus every wider mode', () => {
+    expect(ESCALATION_TARGETS).toEqual(['read-only', 'workspace-write', 'danger-full-access'])
   })
 })
 
@@ -50,8 +53,16 @@ describe('the model-facing markers', () => {
   })
 
   it('the sandbox_permissions description names the family subject', () => {
-    expect(sandboxPermissionsDescription('command')).toBe('The narrowest wider sandbox mode for a one-shot retry of the exact command the sandbox just denied; the retry asks the user for approval.')
-    expect(sandboxPermissionsDescription('operation')).toBe('The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.')
+    expect(sandboxPermissionsDescription('command')).toBe('Sandbox mode for this one command. A narrower mode, including read-only, confines the command without approval. A wider mode is a one-shot retry of the exact command the sandbox just denied; the retry asks the user for approval.')
+    expect(sandboxPermissionsDescription('operation')).toContain('confines the operation without approval')
+  })
+
+  it('strips an inline or line-broken escalation hint without dropping the denial marker', () => {
+    const hint = escalationHintMarker('command')
+    expect(withoutEscalationHint(`${sandboxDenialMarker('read-only')}\n${hint}`)).toBe(sandboxDenialMarker('read-only'))
+    expect(withoutEscalationHint(`exit code: 1; ${hint}`)).toBe('exit code: 1;')
+    expect(mapTextWithoutEscalationHint([{ type: 'text', text: hint }], true)).toEqual([{ type: 'text', text: '' }])
+    expect(mapTextWithoutEscalationHint([{ type: 'text', text: hint }], false)).toBeUndefined()
   })
 
   it('the hint marker names the family subject', () => {
@@ -93,7 +104,7 @@ describe('approveEscalation', () => {
     })
   })
 
-  it.each(ESCALATION_TARGETS)('repeating %s succeeds without asking for approval', async (mode) => {
+  it.each(SANDBOX_MODES)('repeating %s succeeds without asking for approval', async (mode) => {
     const seen: unknown[] = []
     const request = req({ requestedMode: mode, effectiveMode: mode })
     await expect(approveEscalation(request, ingredients({ approver: approver('rejected', r => seen.push(r)) })))
@@ -103,15 +114,29 @@ describe('approveEscalation', () => {
       .resolves.toBe(mode)
   })
 
-  it('a narrower or unsupported target fails closed without asking', async () => {
+  it('a narrower target confines the call without approval; unsupported modes fail closed', async () => {
     const seen: unknown[] = []
     const spy = ingredients({ approver: approver('allowed-once', r => seen.push(r)) })
+    await expect(approveEscalation(req({ requestedMode: 'workspace-write', effectiveMode: 'danger-full-access' }), spy))
+      .resolves.toBe('workspace-write')
+    await expect(approveEscalation(req({ requestedMode: 'read-only', effectiveMode: 'danger-full-access' }), spy))
+      .resolves.toBe('read-only')
     await expect(approveEscalation(req({ requestedMode: 'read-only', effectiveMode: 'workspace-write' }), spy))
-      .rejects.toThrow(/not strictly wider than this call's current "workspace-write" mode/)
-    await expect(approveEscalation(req({ requestedMode: 'workspace-write', effectiveMode: 'danger-full-access' as never }), spy))
-      .rejects.toThrow(/not strictly wider/)
+      .resolves.toBe('read-only')
+    await expect(approveEscalation(req({ requestedMode: 'workspace-write', effectiveMode: 'danger-full-access' }), ingredients({ approver: undefined, agent: undefined })))
+      .resolves.toBe('workspace-write')
+    await expect(approveEscalation(req({ requestedMode: 'unknown-mode', effectiveMode: 'unknown-mode' as never }), spy))
+      .rejects.toThrow(/unsupported sandbox permission mode/)
+    await expect(approveEscalation(req({ requestedMode: 'toString', effectiveMode: 'toString' as never }), spy))
+      .rejects.toThrow(/unsupported sandbox permission mode/)
     await expect(approveEscalation(req({ requestedMode: 'unknown-mode' }), spy))
-      .rejects.toThrow(/not strictly wider/)
+      .rejects.toThrow(/unsupported sandbox permission mode/)
+    await expect(approveEscalation(req({ requestedMode: 'toString' }), spy))
+      .rejects.toThrow(/unsupported sandbox permission mode/)
+    await expect(approveEscalation(req({ requestedMode: 'workspace-write', effectiveMode: 'unknown-mode' as never }), spy))
+      .rejects.toThrow(/unsupported current sandbox mode/)
+    await expect(approveEscalation(req({ requestedMode: 'workspace-write', effectiveMode: 'constructor' as never }), spy))
+      .rejects.toThrow(/unsupported current sandbox mode/)
     expect(seen).toEqual([])
   })
 

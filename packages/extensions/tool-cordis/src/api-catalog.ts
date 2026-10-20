@@ -2761,6 +2761,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the prepared handle, including its result projection; preparation timeout yields an already-settled handle with no output.',
         throws: ['on preparation failure or caller cancellation before process publication.'],
       },
+      {
+        signature: 'async run(spec: ShellExecSpec): Promise<ShellRunResult>',
+        description: 'Run a resolved spec to completion and return its settled foreground result. Preserved for backward compatibility with 0.1.x plugins.',
+        parameters: [{ name: 'spec', description: 'a resolved spec from {@link resolve}.' }],
+        returns: 'the settled foreground result.',
+      },
     ],
   },
   {

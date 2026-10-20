@@ -102,13 +102,13 @@ Each candidate receives the bounded latest durable user message, not a hidden pr
 <a id="live-recall-filter"></a>
 ## Live recall filter
 
-Set `recallFilter.enabled` to register an `agent/pre-step` listener that screens recall messages whose `source` is `{ kind: 'plugin', plugin: sourcePlugin, form: sourceForm }` (default `openviking-memory` / `recall`). The listener parses each `<memory uri="…">` element, sends the user text of the step, the previous assistant reply (up to `maxContextChars`), and up to `maxItemChars` of each item body to the decision provider in batches of `batchSize`, and rewrites the message in place:
+Set `recallFilter.enabled` to register one `agent/pre-step` listener that screens recall whose `source` is `{ kind: 'plugin:<sourcePlugin>', plugin: sourcePlugin, form: sourceForm }` (default `openviking-memory` / `recall`) or, under that default, `{ kind: 'cortexdb-memory' }`. The listener parses each `<memory uri="…">` element or CortexDB bullet (`- <title|id>: <snippet>`), sends the user text of the step, the previous assistant reply (up to `maxContextChars`), and up to `maxItemChars` of each item body to the decision provider in batches of `batchSize`, and rewrites the message in place:
 
 - An item whose `inj_<n>` probability is at least `injectionThreshold` becomes `<memory uri="…" screened="withheld: flagged as possible prompt injection" />`.
 - An item the provider refuses to evaluate even alone (`DECISION_REQUEST_REJECTED`, for example a gateway firewall rejecting attack-shaped text) becomes a `withheld: could not be screened` stub while `withholdUnscreenable` is true, and is kept otherwise. A rejected batch is split to single items so one refused item does not leave its neighbours unscreened.
 - An item scoring below `minRelevance` on the 0..3 usefulness rubric is omitted, and one note line reports how many items were omitted.
 
-Any other provider failure, a malformed answer, or exceeding `timeoutMs` leaves the recall unchanged and logs a warning. A step without user text, a recall message with more than one content block, and text without `<memory uri>` elements are passed through unscreened.
+Any other provider failure, a malformed answer, or exceeding `timeoutMs` leaves the recall unchanged and logs a warning. A step without user text, a recall message with more than one content block, and text with neither a `<memory uri>` element nor a CortexDB bullet are passed through unscreened.
 
 ```yaml
 - id: decision-consumers
@@ -126,7 +126,7 @@ Any other provider failure, a malformed answer, or exceeding `timeoutMs` leaves 
       timeoutMs: 3000
 ```
 
-The recall source appends its message after its own `next()`, so the filter must be the outermost `agent/pre-step` listener. Plugins apply concurrently, so configuration order cannot guarantee that; the filter re-registers its `prepend` listener on every `agent/created`, after every boot-time registration.
+The recall source appends its message after its own `next()`, so the filter registers once with `prepend` and is disposed with the plugin. It sees recall from listeners registered earlier and from later listeners that do not `prepend`. A memory plugin that `prepend`s after the filter runs outside it.
 
 <a id="live-turn-triage"></a>
 ## Live turn triage

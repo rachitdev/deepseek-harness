@@ -506,6 +506,47 @@ describe('approval policy (the approval/policy fold)', () => {
     expect(await contextFor()).toBe(NEVER_SENTENCE)
   })
 
+  it('omits sandbox_permissions and the escalation retry hint when policy is never', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ApprovalService)
+    ctx.systemPrompt.tools(() => ({
+      schemas: [{
+        name: 'bash',
+        description: 'Run a command. escalate the exact command once or restructure it. [sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]',
+        parameters: {
+          type: 'object',
+          properties: {
+            command: { type: 'string' },
+            sandbox_permissions: { type: 'string', enum: ['read-only', 'workspace-write', 'danger-full-access'] },
+            justification: { type: 'string' },
+          },
+          required: ['command', 'sandbox_permissions'],
+        },
+      }, {
+        name: 'run_code',
+        description: 'Run a program. A sandbox escalation approves this complete program for one execution only. Nested tools retain their own policies and approvals. Request wider access only after evidence of a denial. Earlier effects may already have completed: inspect them before explicitly retrying. Programs are never replayed automatically.',
+        parameters: { type: 'object', properties: { code: { type: 'string' }, sandbox_permissions: { type: 'string' }, justification: { type: 'string' } } },
+      }],
+    }))
+    const ask = sessionAgent('sess-advertise-ask')
+    const never = sessionAgent('sess-advertise-never')
+    setApprovalPolicy(never.session, 'never')
+    const toolsFor = async (agent: Agent) => (await ctx.systemPrompt.assemble({ agent })).tools
+    const asked = await toolsFor(ask.agent)
+    expect(asked[0]?.parameters['properties']).toHaveProperty('sandbox_permissions')
+    const hidden = await toolsFor(never.agent)
+    const bash = hidden.find(tool => tool.name === 'bash')
+    const runCode = hidden.find(tool => tool.name === 'run_code')
+    expect(bash?.parameters['properties']).not.toHaveProperty('sandbox_permissions')
+    expect(bash?.parameters['properties']).not.toHaveProperty('justification')
+    expect(bash?.parameters['required']).toEqual(['command'])
+    expect(bash?.description).not.toContain('sandbox_permissions')
+    expect(bash?.description).not.toContain('escalate the exact command once')
+    expect(runCode?.description).not.toContain('sandbox escalation')
+    expect(runCode?.parameters['properties']).not.toHaveProperty('justification')
+  })
+
   it('disposes the runtime-context contribution with the service', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)

@@ -39,6 +39,9 @@
       "path": "../../shell/shell"
     },
     {
+      "path": "../../sandbox/sandbox-policy"
+    },
+    {
       "path": "../../session/working-directory"
     }
   ]

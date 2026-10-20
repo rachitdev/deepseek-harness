@@ -39,7 +39,7 @@ kind: "package-reference"
 <a id="mapping"></a>
 ## 映射
 
-DuckDuckGo Lite 把每条自然结果作为锚点放在同一页面上（`result-link`／`result-snippet` class），每条结果映射为一个 `WebSearchSource`：`url` ← 解开 `/l/?uddg=` 重定向包装后的锚点 href，`title` ← 链接文本，`snippet` ← 该行的摘要文本（无摘要的行映射时不带摘要）。没有链接、没有可解码的 http(s) 目标 URL 或标题为空的行没有可移植内容，会被丢弃。DuckDuckGo 不返回生成答案，因此省略 `content`；Lite 在服务端排序，因此请求的 `maxResults` 由 seam 的截断强制执行，而非本提供方。失败以 `WebError` 呈现：网络故障、HTTP 错误和超大响应体为 `WEB_PROVIDER_ERROR`；被中止的请求为 `WEB_ABORTED`；DuckDuckGo 的 202 异常页（机器人限流）为一条指明限流的 `WEB_PROVIDER_ERROR` 消息。HTTP 重定向在联系 `Location` 目标之前即被拒绝。
+DuckDuckGo Lite 把每条自然结果放在同一页面上：`result-link` 锚点，以及 `result-snippet` 锚点或 `td.result-snippet` 单元格。每条结果映射为一个 `WebSearchSource`：`url` ← 解开 `/l/?uddg=` 重定向包装后的锚点 href，`title` ← 链接文本，`snippet` ← 该行的摘要文本（无摘要的行映射时不带摘要）。没有链接、没有可解码的 http(s) 目标 URL 或标题为空的行没有可移植内容，会被丢弃。DuckDuckGo 不返回生成答案，因此省略 `content`；Lite 在服务端排序，因此请求的 `maxResults` 由 seam 的截断强制执行，而非本提供方。失败以 `WebError` 呈现：网络故障、HTTP 错误和超大响应体为 `WEB_PROVIDER_ERROR`；被中止的请求为 `WEB_ABORTED`；DuckDuckGo 的 202 异常页（机器人限流）为一条指明限流的 `WEB_PROVIDER_ERROR` 消息。HTTP 重定向在联系 `Location` 目标之前即被拒绝。
 
 <a id="dev-note"></a>
 ## 开发备注

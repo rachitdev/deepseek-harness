@@ -23,7 +23,7 @@ import type { JobId, JobRegistry, JobView } from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-shell-env'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { ESCALATION_TARGETS, approveEscalation, sandboxPermissionsDescription, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import { ESCALATION_TARGETS, approveEscalation, mapTextWithoutEscalationHint, sandboxPermissionsDescription, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-shell'
 import type { ShellExecRequest, ShellExecSpec, ShellExecution, ShellRunResult } from '@deepseek-ai/dsh-shell'
@@ -199,6 +199,11 @@ const BACKGROUND_OUTPUT_PROPERTIES = {
   cwd: { type: 'string', required: true },
 } as const
 
+/**
+ * Register the bash tool, its prompt section, and its job adaptation.
+ * @param ctx - plugin context with tools, shell, and optional approval.
+ * @param config - background and timeout-promotion options.
+ */
 export function apply(ctx: Context, config: Config = {}): void {
   const backgroundEnabled = config.enableRunInBackground ?? true
   // Keeping a timed-out command needs the whole background surface: the job
@@ -213,6 +218,12 @@ export function apply(ctx: Context, config: Config = {}): void {
   /** Resolve the complete standing policy for this call when a confining executor is mounted. */
   const resolveSandboxPolicy = (exec: ToolExecution): SandboxExecutionPolicy | undefined =>
     sandboxPolicy?.resolve(exec.agent === undefined ? {} : { session: exec.agent.session })
+  /** Modes named in a denial hint. `never` rejects every widening, so the hint is omitted. */
+  const escalationHintModes = (exec: ToolExecution): readonly SandboxMode[] => {
+    const agent = exec.agent
+    if (agent !== undefined && ctx.get('approval')?.policyOf(agent.session) === 'never') return []
+    return escalationModes
+  }
 
   /**
    * Resolve a sandbox-escalation request through `ctx.approval` BEFORE
@@ -278,7 +289,7 @@ export function apply(ctx: Context, config: Config = {}): void {
               proc = await ctx.shell.execute({ ...spec, signal })
               return proc
             },
-            started => processOutcome(started, escalationModes),
+            started => processOutcome(started, escalationHintModes(exec)),
           )
           return {
             done: hooks.done,
@@ -474,6 +485,11 @@ export function apply(ctx: Context, config: Config = {}): void {
               : renderResult(value as { kind: 'foreground' } & ShellRunResult, escalationModes),
         }],
         presentationMeta: (_args, value) => ({ cwd: value.cwd }),
+      },
+      finalizeContent(exec, result) {
+        const agent = exec.agent
+        const omit = agent !== undefined && ctx.get('approval')?.policyOf(agent.session) === 'never'
+        return mapTextWithoutEscalationHint(result.content, omit)
       },
       async execute(args: BashToolArgs, exec) {
         // Description is display metadata; workdir defaults to the caller's session.

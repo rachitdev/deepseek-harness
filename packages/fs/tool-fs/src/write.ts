@@ -126,7 +126,7 @@ export function applyWriteTool(ctx: Context, sandbox: FsSandboxController): void
         // A sandbox denial becomes the shared [sandbox: …] marker (the model
         // recognizes it from bash); guarded mutation failures receive their
         // stable model-facing diagnostic; anything else passes through.
-        throw remediateFsError(sandbox.mapError(error, sandboxPolicy), target.displayPath)
+        throw remediateFsError(sandbox.mapError(error, sandboxPolicy, sandbox.advertiseHint(exec)), target.displayPath)
       }
       return mutationResult(ctx, target, outcome, exec)
     },

@@ -165,4 +165,13 @@ describe('runHook — outcome decoding + duration', () => {
     expect(output.hookEventName).toBe('PreToolUse')
     expect(output.decision).toBeUndefined()
   })
+
+  it('forwards the session sandbox policy onto the shell request', async () => {
+    const { bash, specs } = recordingBash(async () => result())
+    const sandboxPolicy = { mode: 'workspace-write' as const, workspaceRoot: '/ws' }
+    await runHook(bash, { command: 'h' }, {
+      payload: {}, signal: testSignal(), defaultTimeoutMs: 1000, trailingNewline: true, sandboxPolicy,
+    }, clock())
+    expect(specs[0]?.sandboxPolicy).toEqual(sandboxPolicy)
+  })
 })

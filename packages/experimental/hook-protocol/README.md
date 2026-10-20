@@ -73,7 +73,7 @@ Invocation and result records must sit inside an open turn: `UserPromptSubmit`, 
 ### Design philosophy
 
 - **One axis of difference collapsed into `mode`.** The dialects differ only in how a matcher pattern is interpreted, so the matcher takes the mode as a parameter instead of duplicating the engine.
-- **The executor owns process control.** Commands run through the `dsh-shell` executor rather than a bespoke spawn: the executor already provides the scrubbed-but-overridable environment, process-group cancellation, and timeout the protocol needs.
+- **The executor owns process control.** Commands run through the `dsh-shell` executor rather than a bespoke spawn: the executor already provides the scrubbed-but-overridable environment, process-group cancellation, and timeout the protocol needs. A caller may pass the session's resolved sandbox policy; the executor applies its own default when that field is omitted.
 - **Never throw into the loop.** Every failure mode — malformed JSON, an invalid regex, an executor rejection — degrades to a contained outcome or a non-match, so a hook can never crash the calling turn.
 - **Log-only, turn-enclosed events.** The `hook/*` records are durable evidence of what ran and what it decided; they are not surface events.
 

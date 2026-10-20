@@ -116,16 +116,29 @@ export class FsSandboxController {
    * `Error` would strip the code retry/observers key off. Any other error
    * passes through unchanged. A `FS_SANDBOX_DENIED` only arises under a
    * confining backend, which always advertises the escalation fields, so the
-   * hint always applies here.
+   * hint applies unless the session approval policy is `never`.
    * @param error - the error thrown by the mutation.
    * @param policy - the policy stamped onto the call (names the mode in the marker).
+   * @param advertiseHint - whether the denial may name the escalation retry. False when approval policy is `never`.
    * @returns the error to throw — the marker `FsError` for a sandbox denial, else the original.
    */
-  mapError(error: unknown, policy: SandboxExecutionPolicy | undefined): unknown {
+  mapError(error: unknown, policy: SandboxExecutionPolicy | undefined, advertiseHint = true): unknown {
     if (!(error instanceof FsError) || error.code !== 'FS_SANDBOX_DENIED') return error
     // A FS_SANDBOX_DENIED only arises under a confining backend, whose tool
     // path always resolves a policy before mutation.
     const mode = (policy as SandboxExecutionPolicy).mode
-    return new FsError(`${sandboxDenialMarker(mode)}\n${escalationHintMarker('operation')}`, 'FS_SANDBOX_DENIED', { cause: error })
+    const hint = advertiseHint ? `\n${escalationHintMarker('operation')}` : ''
+    return new FsError(`${sandboxDenialMarker(mode)}${hint}`, 'FS_SANDBOX_DENIED', { cause: error })
+  }
+
+  /**
+   * Whether a denial for this call may advertise the escalation retry.
+   * @param exec - the mutation call; an agentless call keeps the hint.
+   * @returns false when the session approval policy is `never`.
+   */
+  advertiseHint(exec: ToolExecution): boolean {
+    const agent = exec.agent
+    if (agent === undefined) return true
+    return this.ctx.get('approval')?.policyOf(agent.session) !== 'never'
   }
 }

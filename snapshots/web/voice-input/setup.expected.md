@@ -1,6 +1,6 @@
 - dialog "Set up voice input before recording":
   - heading "Set up voice input before recording" [level=2]
   - button "Cancel"
-  - paragraph: Voice input is enabled. First use requires downloading and preparing local recognition models. Open the plugin details to review disk space, memory and time estimates before starting setup.
+  - paragraph: Voice input is enabled. Open plugin details to choose a recognizer. SenseVoice needs a model download on first use; supported Macs can also use Apple on-device speech.
   - button "Later"
   - button "Go to setup"

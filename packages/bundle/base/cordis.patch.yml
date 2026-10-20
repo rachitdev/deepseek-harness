@@ -114,6 +114,10 @@
       name: '@deepseek-ai/dsh-decision-laya'
       disabled: true
 
+    - id: decision-llm
+      name: '@deepseek-ai/dsh-decision-llm'
+      disabled: true
+
     - id: decision-consumers
       name: '@deepseek-ai/dsh-decision-consumers'
       disabled: true

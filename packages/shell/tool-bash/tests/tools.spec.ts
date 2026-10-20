@@ -15,7 +15,7 @@ import { turnBoundaryProjectionDefinition } from '@deepseek-ai/dsh-agent-loop'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import * as ToolJobs from '@deepseek-ai/dsh-tool-jobs'
-import ApprovalService from '@deepseek-ai/dsh-user-approval'
+import ApprovalService, { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -156,7 +156,7 @@ class RecordingSandboxExecutor extends ShellExecutor {
       exitCode: 0,
       signal: null,
       done: Promise.resolve(),
-      sandbox: { mode: spec.sandboxPolicy?.mode ?? 'read-only', denied: false },
+      sandbox: { mode: spec.sandboxPolicy?.mode ?? 'read-only', denied: spec.command === 'deny-me' },
       readOutput: () => ({ delta: '', lossy: false }),
       observed: { stdout: silentReader, stderr: silentReader },
       kill: () => false,
@@ -170,7 +170,7 @@ class RecordingSandboxExecutor extends ShellExecutor {
       stderr: { text: '', truncated: false },
       sandbox: {
         mode: spec.sandboxPolicy?.mode ?? 'read-only',
-        denied: false,
+        denied: spec.command === 'deny-me',
         ...spec.command === 'without optional sandbox facts'
           ? {}
           : { enforcement: 'full' as const, runnerFailed: false },
@@ -729,7 +729,7 @@ describe('sandbox escalation through the generic task producer', () => {
     const { ctx } = await setupSandboxed()
     const schema = ctx.tools.schemas().find(item => item.name === 'bash')!
     const properties = schema.parameters.properties as Record<string, { enum?: string[]; description?: string }>
-    expect(properties['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
+    expect(properties['sandbox_permissions']?.enum).toEqual(['read-only', 'workspace-write', 'danger-full-access'])
     expect(properties['sandbox_permissions']?.description).toContain('asks the user for approval')
 
     for (const args of [
@@ -739,6 +739,19 @@ describe('sandbox escalation through the generic task producer', () => {
     ]) {
       expect((await call(ctx, 'bash', args)).isError).toBe(true)
     }
+  })
+
+  it('omits the escalation retry hint and schema fields when approval policy is never', async () => {
+    const { ctx } = await setupSandboxed(true)
+    const agent = sandboxAgent('read-only', ctx)
+    setApprovalPolicy(agent.session, 'never')
+    const denied = await call(ctx, 'bash', { command: 'deny-me', description: 'denied command' }, agent)
+    expect(text(denied)).toContain(sandboxDenialMarker('read-only'))
+    expect(text(denied)).not.toContain(escalationHintMarker('command'))
+    const bash = (await ctx.systemPrompt.assemble({ agent })).tools.find(tool => tool.name === 'bash')
+    const properties = bash?.parameters['properties']
+    expect(properties).not.toHaveProperty('sandbox_permissions')
+    expect(properties).not.toHaveProperty('justification')
   })
 
   it.each([undefined, '', ' \t\n'])('runs without escalation for justification %j', async (justification) => {
@@ -773,7 +786,7 @@ describe('sandbox escalation through the generic task producer', () => {
     }
   })
 
-  it('rejects injected escalation without a sandbox and narrower escalation without prompting', async () => {
+  it('rejects injected escalation without a sandbox and runs a narrower call without prompting', async () => {
     const plain = await setup()
     expect(text(await call(plain, 'bash', escalate))).toContain('not available in this composition')
 
@@ -781,7 +794,8 @@ describe('sandbox escalation through the generic task producer', () => {
     const prompted = vi.fn()
     ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
     const result = await call(ctx, 'bash', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('danger-full-access'))
-    expect(text(result)).toContain('not strictly wider')
+    expect(result.isError).toBe(false)
+    expect(text(result)).toBe('ok')
     expect(prompted).not.toHaveBeenCalled()
 
     const malformed = sandboxAgent()
@@ -790,7 +804,7 @@ describe('sandbox escalation through the generic task producer', () => {
       data: { mode: 'unknown-mode' },
       seq: malformed.session.seq,
     })
-    expect(text(await call(ctx, 'bash', escalate, malformed))).toContain('not strictly wider')
+    expect(text(await call(ctx, 'bash', escalate, malformed))).toContain('unsupported current sandbox mode')
   })
 
   it.each(['workspace-write', 'danger-full-access'] as const)('runs a repeated %s request without approval', async (mode) => {

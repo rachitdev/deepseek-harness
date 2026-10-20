@@ -12,12 +12,14 @@ import z from '@deepseek-ai/schemastery'
 import {
   JEV_DEFAULT_BASE_URL,
   JEV_DEFAULT_MODEL,
+  JEV_DEFAULT_TIMEOUT_MS,
   JevDecisionProvider,
 } from './provider.ts'
 
 export {
   JEV_DEFAULT_BASE_URL,
   JEV_DEFAULT_MODEL,
+  JEV_DEFAULT_TIMEOUT_MS,
   JEV_EVALUATION_PATH,
   JEV_PROVIDER_ID,
   JevDecisionProvider,
@@ -51,6 +53,8 @@ export interface Config {
   baseURL?: string
   /** Direct TypeSafe model id. */
   model?: string
+  /** Ceiling on one awaited call, in milliseconds; on expiry the fallback provider answers. */
+  timeoutMs?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -59,9 +63,10 @@ export const Config: z<Config> = z.object({
   // No schema default: `$TYPESAFE_BASE_URL` must be able to win when no section pins the endpoint,
   // and a schema default would fill the field first and make that fallback unreachable.
   baseURL: z.string(),
-  // Declared here rather than only at the use site: a configuration surface renders the resolved
-  // section, so a default the schema does not carry reads there as no value at all.
-  model: z.string().default(JEV_DEFAULT_MODEL),
+  // No schema default: `$TYPESAFE_MODEL` must be able to win when no section pins the model,
+  // and a schema default would fill the field first and make that fallback unreachable.
+  model: z.string(),
+  timeoutMs: z.number().step(1).min(1).default(JEV_DEFAULT_TIMEOUT_MS),
 })
 
 /**
@@ -100,6 +105,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     model: config.model
       ?? launchEnvironmentOf(ctx).get(MODEL_ENV)?.value
       ?? JEV_DEFAULT_MODEL,
+    timeoutMs: config.timeoutMs ?? JEV_DEFAULT_TIMEOUT_MS,
   })
 
   ctx.effect(() => ctx.decision.registerProvider(provider))

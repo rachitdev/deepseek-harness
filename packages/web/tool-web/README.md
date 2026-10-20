@@ -69,7 +69,7 @@ If any query in a multi-query call fails, `web_search` aborts the remaining sear
 
 ### Using web_fetch
 
-Call `web_fetch` with one `url`. HTML bodies are filtered and rendered to markdown (GFM tables and strikethrough included); text bodies pass through under an untrusted-content notice. When `fetchGuardrail` is enabled, the mounted decision provider evaluates prompt-injection and credential-harvest hazards before rendering; `review` and `block` verdicts replace the fetched body with a bounded diagnostic, while provider errors fail the tool call rather than returning unreviewed text. A non-2xx status is reported in the result, not thrown as an error. Truncated content appends `(Content truncated. Fetch a more specific URL or section for the full text.)`.
+Call `web_fetch` with one `url`. HTML bodies are filtered and rendered to markdown (GFM tables and strikethrough included); text bodies pass through under an untrusted-content notice. When `fetchGuardrail` is enabled, the mounted decision provider screens that extracted text for prompt-injection and credential-harvest hazards; `review` and `block` verdicts replace the fetched body with a bounded diagnostic that does not name the decision provider. A guardrail failure other than caller cancellation also withholds the body with an actionable status instead of returning unreviewed text. A non-2xx status is reported in the result, not thrown as an error. Truncated content appends `(Content truncated. Fetch a more specific URL or section for the full text.)`.
 
 ```text
 web_fetch({ url: 'https://example.com' })

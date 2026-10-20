@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { createUserMessage, type ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type ToolCallId, type ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -71,6 +71,45 @@ export const APPROVAL_POLICIES: readonly ApprovalPolicy[] = ['ask', 'never']
 
 /** Model-facing statement for the deterministic `'never'` policy. */
 const NEVER_SENTENCE = 'Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).'
+const PTC_ESCALATION_SENTENCE = [
+  ' A sandbox escalation approves this complete program for one execution only.',
+  'Nested tools retain their own policies and approvals.',
+  'Request wider access only after evidence of a denial.',
+  'Earlier effects may already have completed: inspect them before explicitly retrying.',
+  'Programs are never replayed automatically.',
+].join(' ')
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Drop the escalation lever from one assembled tool schema. `never` already
+ * rejects every ask, so the parameter and its retry hint must not remain as a
+ * model-facing option.
+ * @param tool - one schema about to enter the model request.
+ * @returns the same schema without escalation arguments or retry guidance.
+ */
+function omitEscalationAdvertisement(tool: ToolSchema): ToolSchema {
+  const parameters = { ...tool.parameters }
+  const properties = parameters['properties']
+  if (isRecord(properties)) {
+    const { sandbox_permissions: _sp, justification: _just, ...rest } = properties
+    parameters['properties'] = rest
+  }
+  const required = parameters['required']
+  if (Array.isArray(required)) {
+    parameters['required'] = required.filter(name => name !== 'sandbox_permissions' && name !== 'justification')
+  }
+  return {
+    ...tool,
+    description: tool.description
+      .replaceAll(PTC_ESCALATION_SENTENCE, '')
+      .replace(/\[sandbox: escalation available — retry this exact \S+ once with sandbox_permissions[^\]]*\]/gu, '')
+      .replace(/escalate the exact command once or /gu, ''),
+    parameters,
+  }
+}
 /** Model-facing statement for an interactive policy that may still fail closed. */
 const ASK_SENTENCE = 'Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.'
 
@@ -155,7 +194,7 @@ export class ApprovalService extends Service {
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'approval')
 
-    const effective = (agent: Agent): ApprovalPolicy => this.effectivePolicy(agent.session)
+    const effective = (agent: Agent): ApprovalPolicy => this.policyOf(agent.session)
 
     // The complete current value travels after retained history, so switching
     // policy does not rewrite the stable system-prompt cache prefix.
@@ -171,6 +210,15 @@ export class ApprovalService extends Service {
           return policy === 'never' ? NEVER_SENTENCE : ASK_SENTENCE
         },
       })
+      // Schema omission is the model-facing half of `never`: the sentence above
+      // already forbids the retry, and the assembled tool list must not still
+      // offer the parameter or the hint.
+      scope.on('system-prompt/assemble', async (_assembly, context, next) => {
+        const assembled = await next()
+        const agent = context.agent
+        if (agent === undefined || effective(agent) !== 'never') return assembled
+        return { ...assembled, tools: assembled.tools.map(omitEscalationAdvertisement) }
+      })
     })
   }
 
@@ -182,7 +230,7 @@ export class ApprovalService extends Service {
    * @param policy - the new effective policy.
    */
   setPolicy(agent: Agent, policy: ApprovalPolicy): void {
-    const previous = this.effectivePolicy(agent.session)
+    const previous = this.policyOf(agent.session)
     if (previous === policy) return
     setApprovalPolicy(agent.session, policy)
     agent.inject(createUserMessage({
@@ -236,11 +284,11 @@ export class ApprovalService extends Service {
   /**
    * The session's effective policy: its own `approval/policy` fold, else the
    * configured default (the schema already defaulted an omitted policy to
-   * `'ask'`; the `??` only narrows the optional-input TYPE).
+   * `'ask'`; the `??` only narrows the optional-input type).
    * @param session - the exact accepted session whose policy applies.
    * @returns the policy every ask for this session resolves under right now.
    */
-  private effectivePolicy(session: Session): ApprovalPolicy {
+  policyOf(session: Session): ApprovalPolicy {
     return this.overrideOf(session) ?? this.config.policy ?? 'ask'
   }
 
@@ -272,7 +320,7 @@ export class ApprovalService extends Service {
     // ahead of any gate LISTENER, so a listener-shaped gate cannot keep the
     // documented promise that 'never' rejects deterministically regardless
     // of registration order — only the service's own request path can.
-    if (this.effectivePolicy(session) === 'never') return 'rejected'
+    if (this.policyOf(session) === 'never') return 'rejected'
     // Enter the promise chain BEFORE dispatching: a listener that throws
     // SYNCHRONOUSLY (before its first await) must land in the same rejection
     // path as an async one — `Promise.resolve(call())` would let it escape

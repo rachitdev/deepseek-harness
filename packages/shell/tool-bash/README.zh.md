@@ -67,7 +67,7 @@ kind: "package-reference"
 
 ### 沙箱执行与升权
 
-当已挂载的执行器约束命令（例如 `dsh-bash-sandbox`）时，被阻止的文件操作会报告为 `[sandbox: file access denied under <mode> mode]`——这是策略拒绝，不是命令失败。模型随后可以在同一轮次中用 `sandbox_permissions`（满足需要的最窄更宽模式）与一句 `justification` 重试完全相同的命令一次；该重试引发的审批提示就是用户同意的方式。只有发生真实拒绝后才请求更宽权限；被拒绝的升权对该命令即为最终结果。重复当前模式无需审批即可执行，更窄目标则在执行前失败。未提供 `sandbox_permissions` 时，`justification` 可以省略、为空字符串或仅含空白；未指定模式却提供非空理由会被拒绝。重复当前生效模式时也可省略理由或提供空白理由。请求不同模式时必须提供非空理由；升权仍需审批。
+当已挂载的执行器约束命令（例如 `dsh-bash-sandbox`）时，被阻止的文件操作会报告为 `[sandbox: file access denied under <mode> mode]`——这是策略拒绝，不是命令失败。模型随后可以在同一轮次中用 `sandbox_permissions`（满足需要的最窄更宽模式）与一句 `justification` 重试完全相同的命令一次；该重试引发的审批提示就是用户同意的方式。只有发生真实拒绝后才请求更宽权限；被拒绝的升权对该命令即为最终结果。重复或收窄当前模式无需审批即可执行，不支持的目标则在执行前失败。未提供 `sandbox_permissions` 时，`justification` 可以省略、为空字符串或仅含空白；未指定模式却提供非空理由会被拒绝。重复当前生效模式时也可省略理由或提供空白理由。请求不同模式时必须提供非空理由；升权仍需审批。
 
 ### 可能出什么问题
 
@@ -154,7 +154,7 @@ Check the [exit code: N] marker on every bash result; investigate failures befor
 
 #### 模型看到什么
 
-模型会看到生成的 [`bash` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-bash)。仅当本生产方启用 `run_in_background` 且组合中有 job 注册表时，该字段才会出现；仅当已挂载执行器声明支持沙箱时，`sandbox_permissions` 和 `justification` 才会出现；理由字段提示模型使用用户当前提问的语言。按 agent 作用域限制工具可以移除该 agent 的定义。
+模型会看到生成的 [`bash` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-bash)。仅当本生产方启用 `run_in_background` 且组合中有 job 注册表时，该字段才会出现；仅当已挂载执行器声明支持沙箱且会话审批策略不是 `never` 时，`sandbox_permissions` 和 `justification` 才会出现；理由字段提示模型使用用户当前提问的语言。策略为 `never` 时，拒绝结果仍标明模式，并省略升权重试提示。按 agent 作用域限制工具可以移除该 agent 的定义。
 
 #### Token 影响
 

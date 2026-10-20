@@ -435,7 +435,19 @@ export function presentFetchResult(args: { url: string }, result: ToolResult): W
   }
 }
 
-/** Decision-backed guard applied after fetch and before model-visible rendering. */
+/** Decision-backed guard applied to extracted text before that text becomes model-visible. */
+
+function withheldFetch(
+  result: { url: string; statusCode: number },
+  content: string,
+): { url: string; statusCode: number; body: { kind: 'text'; content: string }; truncated: true } {
+  return {
+    url: result.url,
+    statusCode: result.statusCode,
+    body: { kind: 'text', content },
+    truncated: true,
+  }
+}
 export type FetchContentGuard = (
   url: string,
   content: string,
@@ -451,7 +463,8 @@ export type FetchContentGuard = (
  *   `ToolDefinition.timeoutMs` for `@deepseek-ai/dsh-tool-call-timeout-policy` to enforce.
  * @param maxOutputChars - cap on the complete rendered tool output (see
  *   {@link formatFetchOutput}) and on source characters converted synchronously.
- * @param guard - optional decision-backed screen that withholds unsafe content.
+ * @param guard - optional decision-backed screen of the extracted text. A non-pass
+ *   verdict or a guard failure other than caller cancellation withholds the body.
  */
 export function applyWebFetchTool(
   ctx: Context,
@@ -517,17 +530,16 @@ export function applyWebFetchTool(
         exec.signal,
       )
       if (guard !== undefined) {
-        const verdict = await guard(result.url, result.body.content, exec.signal)
-        if (verdict.verdict !== 'pass') {
-          return {
-            url: result.url,
-            statusCode: result.statusCode,
-            body: {
-              kind: 'text' as const,
-              content: `Fetched content withheld by the JEV guardrail (${verdict.verdict}; prompt-injection probability ${verdict.injectionProbability.toFixed(2)}, credential-harvest probability ${verdict.credentialHarvestProbability.toFixed(2)}).`,
-            },
-            truncated: true,
+        const rendered = renderBody(result.body, maxOutputChars)
+        try {
+          const verdict = await guard(result.url, rendered.text, exec.signal)
+          if (verdict.verdict !== 'pass') {
+            return withheldFetch(result, `Fetched content withheld by the fetch guardrail (${verdict.verdict}; prompt-injection probability ${verdict.injectionProbability.toFixed(2)}, credential-harvest probability ${verdict.credentialHarvestProbability.toFixed(2)}).`)
           }
+        } catch (error: unknown) {
+          if (exec.signal.aborted) throw error
+          ctx.logger.warn('web_fetch: fetch guardrail failed; withholding unreviewed content: %o', error)
+          return withheldFetch(result, 'Fetched content withheld because the fetch guardrail could not review it. Retry the fetch or choose another URL.')
         }
       }
       return {

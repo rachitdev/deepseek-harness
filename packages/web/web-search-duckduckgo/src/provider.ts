@@ -106,9 +106,17 @@ export function unwrapResultUrl(href: string): string | undefined {
   }
 }
 
+/** Class tokens from an HTML attribute string. Values never contain quotes. */
+function classTokens(attrs: string): string[] {
+  const klass = /\bclass\s*=\s*("([^"]*)"|'([^']*)')/iu.exec(attrs)
+  const value = klass === null ? '' : klass[2] ?? klass[3] ?? ''
+  return value.split(/\s+/u).filter(token => token.length > 0)
+}
+
 /**
- * Parse one DuckDuckGo Lite results page into rows of anchors. Anchors carry a
- * class attribute quoted with either quote style; attribute values never
+ * Parse one DuckDuckGo Lite results page into rows. Link and snippet anchors
+ * use either quote style. Live Lite pages also put the snippet in a
+ * `td.result-snippet` cell rather than an anchor. Attribute values never
  * contain quotes or angle brackets, and inner HTML is matched lazily to the
  * first closing tag.
  *
@@ -122,21 +130,31 @@ export function parseLiteRows(html: string): DuckDuckGoRow[] {
     const attrs = match[1] ?? ''
     const href = /\bhref\s*=\s*("([^"]*)"|'([^']*)')/iu.exec(attrs)
     if (href === null) continue
-    const klass = /\bclass\s*=\s*("([^"]*)"|'([^']*)')/iu.exec(attrs)
     anchors.push({
       href: decodeEntities(href[2] ?? href[3] ?? ''),
-      class: klass === null ? '' : klass[2] ?? klass[3] ?? '',
+      class: classTokens(attrs).join(' '),
       html: match[2] ?? '',
     })
   }
   const rows: DuckDuckGoRow[] = []
   for (const anchor of anchors) {
-    if (anchor.class === 'result-link') {
+    const tokens = anchor.class.split(/\s+/u)
+    if (tokens.includes('result-link')) {
       rows.push({ link: anchor })
-    } else if (anchor.class === 'result-snippet') {
+    } else if (tokens.includes('result-snippet')) {
       const last = rows.at(-1)
-      if (last !== undefined) last.snippet = anchor
+      if (last !== undefined && last.snippet === undefined) last.snippet = anchor
     }
+  }
+  const cellPattern = /<td\b([^>]*?)>(.*?)<\/td>/gisu
+  let rowIndex = 0
+  for (const match of html.matchAll(cellPattern)) {
+    if (!classTokens(match[1] ?? '').includes('result-snippet')) continue
+    while (rowIndex < rows.length && rows[rowIndex]?.snippet !== undefined) rowIndex += 1
+    const row = rows[rowIndex]
+    if (row === undefined) break
+    row.snippet = { href: '', class: 'result-snippet', html: match[2] ?? '' }
+    rowIndex += 1
   }
   return rows
 }
@@ -253,8 +271,12 @@ export class DuckDuckGoSearchProvider implements WebSearchProvider {
 async function readBody(response: Response): Promise<string> {
   try {
     const text = await response.text()
-    return text.length > MAX_BODY_CHARS ? '' : text
+    if (text.length > MAX_BODY_CHARS) {
+      throw new WebError(`DuckDuckGo returned an oversized response body (${String(text.length)} characters)`, 'WEB_PROVIDER_ERROR')
+    }
+    return text
   } catch (error: unknown) {
+    if (error instanceof WebError) throw error
     if (isAbortError(error)) throw new WebError('DuckDuckGo search aborted', 'WEB_ABORTED', { cause: error })
     throw new WebError(`DuckDuckGo returned an unprocessable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
   }

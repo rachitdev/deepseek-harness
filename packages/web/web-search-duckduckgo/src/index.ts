@@ -46,10 +46,14 @@ export const Config: z<Config> = z.object({
   region: z.string(),
 })
 
-/** Register the DuckDuckGo search provider with `ctx.web`. */
+/**
+ * Register the DuckDuckGo search provider with `ctx.web`.
+ * @param ctx - plugin context; the registration disposes with this fiber.
+ * @param config - optional base URL and region.
+ */
 export function apply(ctx: Context, config: Config): void {
-  ctx.web.registerSearchProvider(new DuckDuckGoSearchProvider({
+  ctx.effect(() => ctx.web.registerSearchProvider(new DuckDuckGoSearchProvider({
     baseURL: config.baseURL ?? DUCKDUCKGO_DEFAULT_BASE_URL,
     ...config.region !== undefined ? { region: config.region } : {},
-  }))
+  })))
 }

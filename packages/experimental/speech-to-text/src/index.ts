@@ -180,7 +180,12 @@ export default class SpeechToText extends Service {
   resolve(request: SpeechRequest): SpeechSpec {
     const id = request.providerId ?? this.config.defaultProvider.get() as SpeechProviderId
     const language = request.language ?? this.config.language.get()
-    return { provider: this.selectedProvider(id, language), audio: request.audio, language }
+    return {
+      provider: this.selectedProvider(id, language),
+      audio: request.audio,
+      language,
+      ...request.mimeType === undefined ? {} : { mimeType: request.mimeType },
+    }
   }
 
   /**
@@ -196,7 +201,11 @@ export default class SpeechToText extends Service {
     const combined = AbortSignal.any([signal, registration.lifetime.signal])
     const pending = Promise.resolve().then(() => {
       combined.throwIfAborted()
-      return spec.provider.transcribe({ audio: spec.audio, language: spec.language }, combined)
+      return spec.provider.transcribe({
+        audio: spec.audio,
+        language: spec.language,
+        ...spec.mimeType === undefined ? {} : { mimeType: spec.mimeType },
+      }, combined)
     })
     registration.pending.add(pending)
     try {

@@ -1,8 +1,8 @@
 /**
- * Live recall filter: screens plugin-injected memory recall before it enters a model step. Each
- * recalled `<memory>` item is judged for usefulness to the current user request and, optionally,
- * for being a stored prompt-injection attempt; low-relevance items are omitted and flagged items are
- * replaced by a stub that keeps only their uri. Any screening failure leaves the recall unchanged.
+ * Live recall filter: screens injected memory recall before it enters a model step. Each recalled
+ * item is judged for usefulness to the current user request and, optionally, for being a stored
+ * prompt-injection attempt; low-relevance items are omitted and flagged items are replaced by a
+ * stub that keeps only their uri. Any screening failure leaves the recall unchanged.
  * @module @deepseek-ai/dsh-decision-consumers/recall-filter
  */
 
@@ -19,7 +19,10 @@ import type { RecallItemJudgement } from './types.ts'
 export interface RecallFilterConfig {
   /** Whether recall messages are screened. */
   readonly enabled?: boolean
-  /** `source.plugin` of the recall messages to screen. */
+  /**
+   * `source.plugin` of plugin-form recall messages to screen.
+   * The default also screens CortexDB recall (`source.kind === 'cortexdb-memory'`).
+   */
   readonly sourcePlugin?: string
   /** `source.form` of the recall messages to screen. */
   readonly sourceForm?: string
@@ -82,6 +85,21 @@ interface RecallScreenCounts {
   withheld: number
 }
 
+const CORTEXDB_RECALL_KIND = 'cortexdb-memory'
+const DEFAULT_RECALL_PLUGIN = 'openviking-memory'
+
+function isRecallSource(
+  source: Readonly<Record<string, unknown>>,
+  config: ResolvedRecallFilterConfig,
+): boolean {
+  if (source['kind'] === CORTEXDB_RECALL_KIND) {
+    return config.sourcePlugin === DEFAULT_RECALL_PLUGIN || config.sourcePlugin === CORTEXDB_RECALL_KIND
+  }
+  return source['kind'] === `plugin:${config.sourcePlugin}`
+    && source['plugin'] === config.sourcePlugin
+    && source['form'] === config.sourceForm
+}
+
 function soleText(message: UserMessage): string | undefined {
   const [block, ...rest] = message.content
   return block?.type === 'text' && rest.length === 0 ? block.text : undefined
@@ -121,10 +139,9 @@ interface RecallTarget {
 /**
  * Install the recall filter on `agent/pre-step`.
  *
- * The filter must observe recall appended by other `prepend` listeners after their own `next()`,
- * so it has to run outermost. Plugins apply concurrently, so load order cannot place it there;
- * instead its listener is (re)registered with `prepend` on every `agent/created`, after every
- * boot-time registration, and again after any hot reload that happened between sessions.
+ * The listener is registered once, with `prepend`, and disposed with the plugin. It calls `next()`
+ * before screening, so it sees recall appended by listeners registered earlier or without `prepend`.
+ * A memory plugin that `prepend`s after this registration runs outside the filter.
  * @param ctx - plugin context carrying the decision service.
  * @param raw - recall-filter configuration; omitted fields take the schema defaults.
  */
@@ -136,10 +153,10 @@ export function installRecallFilter(ctx: Context, raw: RecallFilterConfig): void
     if (decision.kind !== 'enter') return decision
     const targets: RecallTarget[] = []
     decision.messages.forEach((message, index) => {
-      // The producer is an external package outside MessageSourceMap; its source carries
-      // `kind: plugin:<name>`, `plugin: <name>`, and a ContextForm `form`.
+      // Memory producers live outside MessageSourceMap. OpenViking carries
+      // `kind: plugin:<name>`, `plugin`, and `form`; CortexDB carries `kind: cortexdb-memory`.
       const source = message.source as Readonly<Record<string, unknown>>
-      if (source['kind'] !== `plugin:${config.sourcePlugin}` || source['plugin'] !== config.sourcePlugin || source['form'] !== config.sourceForm) return
+      if (!isRecallSource(source, config)) return
       const text = soleText(message)
       const block = text === undefined ? undefined : parseRecallBlock(text)
       if (block !== undefined && block.items.length > 0) targets.push({ index, message, block })
@@ -199,16 +216,7 @@ export function installRecallFilter(ctx: Context, raw: RecallFilterConfig): void
     }
   }
 
-  let unregister: (() => boolean) | undefined
-  const register = (): void => {
-    unregister?.()
-    unregister = ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
-      return screen(agent, await next(), signal)
-    }, { prepend: true })
-  }
-  register()
-  ctx.on('agent/created', () => {
-    register()
-    return undefined
-  })
+  ctx.effect(() => ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
+    return screen(agent, await next(), signal)
+  }, { prepend: true }))
 }

@@ -102,13 +102,13 @@ if (step.action.type === 'click') {
 <a id="live-recall-filter"></a>
 ## 实时召回过滤
 
-设置 `recallFilter.enabled` 会注册一个 `agent/pre-step` 监听器，筛查 `source` 为 `{ kind: 'plugin', plugin: sourcePlugin, form: sourceForm }`（默认 `openviking-memory` / `recall`）的召回消息。监听器解析每个 `<memory uri="…">` 元素，把该步骤的用户文本、上一条 assistant 回复（最多 `maxContextChars`）以及每个条目正文的前 `maxItemChars` 个字符，按 `batchSize` 分批发送给 decision 提供方，并就地改写该消息：
+设置 `recallFilter.enabled` 会注册一个 `agent/pre-step` 监听器，筛查 `source` 为 `{ kind: 'plugin:<sourcePlugin>', plugin: sourcePlugin, form: sourceForm }`（默认 `openviking-memory` / `recall`）的召回，以及该默认配置下 `{ kind: 'cortexdb-memory' }` 的召回。监听器解析每个 `<memory uri="…">` 元素或 CortexDB 列表项（`- <title|id>: <snippet>`），把该步骤的用户文本、上一条 assistant 回复（最多 `maxContextChars`）以及每个条目正文的前 `maxItemChars` 个字符，按 `batchSize` 分批发送给 decision 提供方，并就地改写该消息：
 
 - `inj_<n>` 概率不低于 `injectionThreshold` 的条目变为 `<memory uri="…" screened="withheld: flagged as possible prompt injection" />`。
 - 提供方即使单独评估也拒绝的条目（`DECISION_REQUEST_REJECTED`，例如网关防火墙拒绝攻击形态的文本），在 `withholdUnscreenable` 为 true 时变为 `withheld: could not be screened` 存根，否则保留。被拒绝的批次会拆成单条请求，因此一个被拒条目不会让同批其他条目漏筛。
 - 在 0..3 有用度量表上低于 `minRelevance` 的条目被省略，并用一行说明报告省略的条目数。
 
-其他提供方失败、畸形答案或超过 `timeoutMs` 时，召回保持不变并记录一条警告。没有用户文本的步骤、含多个内容块的召回消息，以及不含 `<memory uri>` 元素的文本都不经筛查直接通过。
+其他提供方失败、畸形答案或超过 `timeoutMs` 时，召回保持不变并记录一条警告。没有用户文本的步骤、含多个内容块的召回消息，以及既无 `<memory uri>` 元素也无 CortexDB 列表项的文本都不经筛查直接通过。
 
 ```yaml
 - id: decision-consumers
@@ -126,7 +126,7 @@ if (step.action.type === 'click') {
       timeoutMs: 3000
 ```
 
-召回来源在自身 `next()` 之后追加消息，因此过滤器必须是最外层的 `agent/pre-step` 监听器。插件是并发应用的，配置顺序无法保证这一点；过滤器在每次 `agent/created` 时重新注册其 `prepend` 监听器，位于所有启动期注册之后。
+召回来源在自身 `next()` 之后追加消息，因此过滤器只注册一次 `prepend` 监听器，并随插件卸载。它能看到更早注册的监听器，以及之后注册且未 `prepend` 的监听器追加的召回。在过滤器之后再 `prepend` 的记忆插件位于过滤器之外。
 
 <a id="live-turn-triage"></a>
 ## 实时轮次分诊

@@ -66,6 +66,12 @@ describe('DuckDuckGo Lite page parsing', () => {
     expect(rows[1]?.snippet).toBeUndefined()
   })
 
+  it('pairs a td.result-snippet cell with the preceding result link', () => {
+    const html = '<td><a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fa.test" class="result-link">Cell</a></td>'
+      + '<td class="result-snippet">from the cell</td>'
+    expect(mapResults(html)).toEqual([{ url: 'https://a.test/', title: 'Cell', snippet: 'from the cell' }])
+  })
+
   it('ignores anchors that are not results', () => {
     const rows = parseLiteRows('<a href="//x.test">nav</a>' + litePage([{ title: 'Only', url: 'https://a.test' }]))
     expect(rows).toHaveLength(1)
@@ -208,10 +214,10 @@ describe('DuckDuckGoSearchProvider error handling', () => {
     expect((error as Error).message).toContain('unprocessable response body')
   })
 
-  it('treats an oversized body as unusable rather than parsing it', async () => {
+  it('rejects an oversized body instead of parsing it', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => htmlResponse('x'.repeat(1_000_001))))
     await expect(new DuckDuckGoSearchProvider(options).search({ query: 'q' }))
-      .resolves.toMatchObject({ sources: [], truncated: false })
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: expect.stringContaining('oversized response body') }))
   })
 })
 

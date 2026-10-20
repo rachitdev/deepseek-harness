@@ -54,6 +54,8 @@ flowchart LR
   cfg --> plugin_dsh_base_decision_jev
   plugin_dsh_base_decision_laya["decision-laya<br/>@deepseek-ai/dsh-decision-laya"]
   cfg --> plugin_dsh_base_decision_laya
+  plugin_dsh_base_decision_llm["decision-llm<br/>@deepseek-ai/dsh-decision-llm"]
+  cfg --> plugin_dsh_base_decision_llm
   plugin_dsh_base_decision_consumers["decision-consumers<br/>@deepseek-ai/dsh-decision-consumers"]
   cfg --> plugin_dsh_base_decision_consumers
   plugin_dsh_base_config_editor["config-editor<br/>@deepseek-ai/dsh-config-editor"]
@@ -235,6 +237,7 @@ flowchart LR
 | `decision` | `@deepseek-ai/dsh-decision` |
 | `decision-jev` | `@deepseek-ai/dsh-decision-jev` |
 | `decision-laya` | `@deepseek-ai/dsh-decision-laya` |
+| `decision-llm` | `@deepseek-ai/dsh-decision-llm` |
 | `decision-consumers` | `@deepseek-ai/dsh-decision-consumers` |
 | `config-editor` | `@deepseek-ai/dsh-config-editor` |
 | `settings` | `@deepseek-ai/dsh-settings` |

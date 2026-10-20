@@ -121,6 +121,8 @@ Approval policy: ask. Operations that require approval may ask through the confi
 Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).
 ```
 
+When the effective policy is `never`, prompt assembly also removes `sandbox_permissions` and `justification` from every tool schema and strips the same-turn escalation retry hint from tool descriptions. The registry schema stays intact so a later switch to `ask` still has the lever.
+
 #### Token effect
 
 One concise context message on the first request and on an effective change; unchanged requests add no duplicate policy tokens.

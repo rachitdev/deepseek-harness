@@ -158,6 +158,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       throw new Error(`tool-skill: pinnedSkills entry "${pinned}" is not a valid skill name`)
     }
   }
+  const pinnedNames = new Set(pinnedSkills)
   const skillAdjudication = config.skillAdjudication ?? false
   const skillAdjudicationMaxCandidates = config.skillAdjudicationMaxCandidates ?? 16
   const skillAdjudicationRelevanceThreshold = config.skillAdjudicationRelevanceThreshold ?? 0.65
@@ -332,7 +333,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (decision.kind === 'reject') return decision
       if (ctx.tools.get(skillTool.name, agent) !== skillTool) return decision
       advisor.start(agent, turn, messages, async (signal) => {
-        const summaries = await ctx.skills.list({ cwd: agent.session.header.cwd, signal, scope: agent })
+        const summaries = await ctx.skills.list({ cwd: await ctx.workingDirectory.ensure(agent, signal), signal, scope: agent })
         return summaries.filter(isModelInvocable)
       })
       return decision
@@ -362,7 +363,9 @@ export function apply(ctx: Context, config: Config = {}): void {
       : { skills: [], complete: true }
     signal.throwIfAborted()
     if (!snapshot.complete) return decision
-    const skills = snapshot.skills.filter(isModelInvocable)
+    // A pinned skill's full body already rides the system prompt, so listing it again would
+    // spend catalog tokens on a skill the model never needs to load.
+    const skills = snapshot.skills.filter(skill => isModelInvocable(skill) && !pinnedNames.has(skill.name))
     const entries = catalogSourceEntries(skills, catalogDescriptionMaxLength)
     const digest = digestCatalogEntries(entries)
     const history = catalogHistory(agent)
@@ -412,13 +415,19 @@ export function apply(ctx: Context, config: Config = {}): void {
     const assembled = await next()
     const agent = context.agent
     if (agent === undefined || pinnedSkills.length === 0) return assembled
-    const lookup = { cwd: agent.session.header.cwd, signal: context.signal, scope: agent }
+    const lookup = { cwd: await ctx.workingDirectory.ensure(agent, context.signal), signal: context.signal, scope: agent }
+    // Several tool-skill instances can serve one agent (an agent-preset row beside a profile row),
+    // each hooked into the same assembly; a skill another instance already pinned must not repeat.
+    const present = new Set(assembled.sections.map(section => section.name))
     const pinned: AssembledSection[] = []
     for (const pinnedName of pinnedSkills) {
+      if (present.has(`skill:pinned:${pinnedName}`)) continue
       let skill: SkillDefinition | undefined
       try {
         skill = await ctx.skills.get(pinnedName, lookup)
-      } catch {
+      } catch (error: unknown) {
+        // A pinned skill that fails to load degrades to catalog-only routing for this assembly.
+        ctx.logger.warn('tool-skill: pinned skill "%s" failed to load; skipping it for this assembly: %o', pinnedName, error)
         continue
       }
       context.signal?.throwIfAborted()

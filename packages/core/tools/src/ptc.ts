@@ -100,7 +100,7 @@ const RUN_CODE_DESCRIPTION_PARAM_DESCRIPTION
 
 const RUN_CODE_CONTROLS = {
   timeoutMs: { type: 'number', description: 'Positive elapsed-time budget in milliseconds, capped by the deployment maximum.' },
-  sandbox_permissions: { type: 'string', enum: [...ESCALATION_TARGETS], description: 'Wider sandbox mode for this complete program execution; requires justification and approval.' },
+  sandbox_permissions: { type: 'string', enum: [...ESCALATION_TARGETS], description: 'Sandbox mode for this complete program. A narrower mode, including read-only, confines the program without approval. A wider mode requires justification and approval.' },
   justification: { type: 'string', description: 'Reason this complete program needs wider access, shown to the user for approval. Use the language of the user’s current request.' },
 } as const
 
@@ -119,9 +119,16 @@ function controlParameters(runtime: PtcRuntime | undefined) {
   }
 }
 
+const PTC_ESCALATION_GUIDANCE = ' A sandbox escalation approves this complete program for one execution only. Nested tools retain their own policies and approvals. Request wider access only after evidence of a denial. Earlier effects may already have completed: inspect them before explicitly retrying. Programs are never replayed automatically.'
+
 function escalationGuidance(runtime: PtcRuntime | undefined): string {
-  return runtime?.sandboxMode === undefined ? ''
-    : ' A sandbox escalation approves this complete program for one execution only. Nested tools retain their own policies and approvals. Request wider access only after evidence of a denial. Earlier effects may already have completed: inspect them before explicitly retrying. Programs are never replayed automatically.'
+  return runtime?.sandboxMode === undefined ? '' : PTC_ESCALATION_GUIDANCE
+}
+
+/** `never` rejects every widening, so a denial must not offer the retry. */
+function escalationAdvertised(ctx: Context, agent: { readonly session: Parameters<ApprovalService['policyOf']>[0] } | undefined): boolean {
+  if (agent === undefined) return true
+  return ctx.get('approval')?.policyOf(agent.session) !== 'never'
 }
 
 /**
@@ -374,6 +381,16 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
         if (value.sandbox?.denied) parts.push(`The ${value.sandbox.mode} file sandbox denied an operation.${escalationGuidance(peekRuntime())}`)
         return [{ type: 'text', text: parts.length > 0 ? parts.join('\n') : '(run_code completed with no output)' }]
       },
+    },
+    finalizeContent(exec, result) {
+      if (escalationAdvertised(ctx, exec.agent)) return undefined
+      let changed = false
+      const content = result.content.map((block) => {
+        if (block.type !== 'text' || !block.text.includes(PTC_ESCALATION_GUIDANCE)) return block
+        changed = true
+        return { ...block, text: block.text.replace(PTC_ESCALATION_GUIDANCE, '') }
+      })
+      return changed ? content : undefined
     },
     async execute(args, exec): Promise<RunCodeOutput> {
       if (args.description.trim().length === 0) {
@@ -737,7 +754,8 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
             const logsText = result.logs.length > 0 ? `\nCaptured output:\n${result.logs.join('\n')}` : ''
             const sandboxText = result.sandbox === undefined ? ''
               : `\nFile sandbox: ${result.sandbox.mode}${result.sandbox.enforcement === undefined ? '' : `; enforcement: ${result.sandbox.enforcement}`}${result.sandbox.denied ? '; operation denied' : ''}.`
-            throw new CodeRunFailedError(`code run failed (${result.error.kind}): ${result.error.message}${logsText}${sandboxText}${result.sandbox?.denied ? escalationGuidance(runtime) : ''}`)
+            const guidance = result.sandbox?.denied && escalationAdvertised(ctx, exec.agent) ? escalationGuidance(runtime) : ''
+            throw new CodeRunFailedError(`code run failed (${result.error.kind}): ${result.error.message}${logsText}${sandboxText}${guidance}`)
           }
           return {
             logs: result.logs,
@@ -775,7 +793,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
       return resolveFlavor(peekRuntime).description
         + (instructions ? ` ${instructions}` : '')
         + (runtime === undefined ? '' : " Each program starts in the Session's current directory. Running programs keep their initial directory.")
-        + escalationGuidance(runtime)
+        + (runtime === undefined ? '' : escalationGuidance(runtime))
     },
   })
   Object.defineProperty(definition, 'parameters', {

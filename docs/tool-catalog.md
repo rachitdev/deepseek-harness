@@ -596,8 +596,9 @@ Execute a TypeScript program against the available tools. Takes two required arg
     },
     "sandbox_permissions": {
       "type": "string",
-      "description": "Wider sandbox mode for this complete program execution; requires justification and approval.",
+      "description": "Sandbox mode for this complete program. A narrower mode, including read-only, confines the program without approval. A wider mode requires justification and approval.",
       "enum": [
+        "read-only",
         "workspace-write",
         "danger-full-access"
       ]

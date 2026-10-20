@@ -65,8 +65,17 @@ class ScriptedProvider implements DecisionProvider {
   }
 }
 
-/** Stands in for a memory plugin: appends one recall message after the rest of the chain, as OpenViking does. */
-function mountRecallSource(ctx: Context, text: string, plugin = 'openviking-memory', extraBlock = false): void {
+/** Stands in for a memory plugin: appends one recall message after the rest of the chain. */
+function mountRecallSource(
+  ctx: Context,
+  text: string,
+  plugin = 'openviking-memory',
+  extraBlock = false,
+  prepend = true,
+): void {
+  const source = plugin === 'cortexdb-memory'
+    ? { kind: 'cortexdb-memory' }
+    : { kind: `plugin:${plugin}`, plugin, form: 'recall' }
   ctx.on('agent/pre-step', async (_payload, next) => {
     const decision = await next()
     if (decision.kind !== 'enter') return decision
@@ -74,10 +83,10 @@ function mountRecallSource(ctx: Context, text: string, plugin = 'openviking-memo
       ...decision,
       messages: [...decision.messages, createUserMessage({
         content: extraBlock ? [{ type: 'text', text }, { type: 'text', text: 'second block' }] : [{ type: 'text', text }],
-        source: { kind: `plugin:${plugin}`, plugin, form: 'recall' } as unknown as UserMessage['source'],
+        source: source as unknown as UserMessage['source'],
       })],
     }
-  }, { prepend: true })
+  }, prepend ? { prepend: true } : undefined)
 }
 
 let context: Context | undefined
@@ -104,9 +113,9 @@ async function harness(
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(DecisionRuntime)
   ctx.effect(() => ctx.decision.registerProvider(provider))
-  await ctx.plugin(consumers, { recallFilter: Object.assign({ enabled: true }, recallFilter) })
-  // Registered after the filter: the filter must still observe this recall.
+  // A prepend source installed first stays inside the filter's single prepend registration.
   mountRecallSource(ctx, recall, plugin, extraBlock)
+  await ctx.plugin(consumers, { recallFilter: Object.assign({ enabled: true }, recallFilter) })
   await ctx.plugin(AgentLoop, { agents: [] })
   const adapter = new RecordingAdapter()
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -128,9 +137,9 @@ async function runTurn(
   return agent
 }
 
-function recallTexts(agent: Awaited<ReturnType<typeof runTurn>>): string[] {
+function recallTexts(agent: Awaited<ReturnType<typeof runTurn>>, kind = 'plugin:openviking-memory'): string[] {
   return agent.session.deriveMessages()
-    .filter(message => (message.source as Readonly<Record<string, unknown>>)['kind'] === 'plugin:openviking-memory')
+    .filter(message => (message.source as Readonly<Record<string, unknown>>)['kind'] === kind)
     .flatMap(message => message.content.flatMap(block => block.type === 'text' ? [block.text] : []))
 }
 
@@ -290,6 +299,40 @@ describe('live recall filter', () => {
     expect(provider.requests).toHaveLength(0)
   })
 
+  it('screens CortexDB markdown recall registered after the filter without re-registering', async () => {
+    const provider = new ScriptedProvider()
+    const ctx = new Context()
+    context = ctx
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(DecisionRuntime)
+    ctx.effect(() => ctx.decision.registerProvider(provider))
+    await ctx.plugin(consumers, { recallFilter: { enabled: true } })
+    const recall = [
+      'Relevant CortexDB memories for this prompt (retrieved automatically — verify before relying on them):',
+      '- viking://useful: Prefers Rust for new DSH packages.',
+      '- viking://noise: Protildo form filing session.',
+      '(If this exchange states a durable preference, decision, or fact, save it with cortexdb_memory_store.)',
+    ].join('\n')
+    mountRecallSource(ctx, recall, 'cortexdb-memory', false, false)
+    await ctx.plugin(AgentLoop, { agents: [] })
+    ctx.llm.registerAdapter(['mock'], new RecordingAdapter())
+
+    const agent = await runTurn(ctx, 'recall-filter-cortexdb')
+
+    expect(recallTexts(agent, 'cortexdb-memory')).toEqual([[
+      'Relevant CortexDB memories for this prompt (retrieved automatically — verify before relying on them):',
+      '- viking://useful: Prefers Rust for new DSH packages.',
+      consumers.omittedItemsNote(1),
+      '(If this exchange states a durable preference, decision, or fact, save it with cortexdb_memory_store.)',
+    ].join('\n')])
+    expect(provider.requests).toHaveLength(1)
+  })
+
   it('removes its listener when the plugin fiber is disposed', async () => {
     const provider = new ScriptedProvider()
     const ctx = new Context()
@@ -302,15 +345,19 @@ describe('live recall filter', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(DecisionRuntime)
     ctx.effect(() => ctx.decision.registerProvider(provider))
-    const fiber = await ctx.plugin(consumers, { recallFilter: { enabled: true } })
     mountRecallSource(ctx, RECALL)
+    const fiber = await ctx.plugin(consumers, { recallFilter: { enabled: true } })
     await ctx.plugin(AgentLoop, { agents: [] })
     ctx.llm.registerAdapter(['mock'], new RecordingAdapter())
+
+    await runTurn(ctx, 'recall-filter-before-dispose')
+    const screened = provider.requests.length
+    expect(screened).toBeGreaterThan(0)
 
     await fiber.dispose()
     const agent = await runTurn(ctx, 'recall-filter-disposed')
 
-    expect(provider.requests).toHaveLength(0)
+    expect(provider.requests).toHaveLength(screened)
     expect(recallTexts(agent)).toEqual([RECALL])
   })
 })

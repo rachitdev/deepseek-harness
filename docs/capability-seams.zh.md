@@ -267,6 +267,7 @@ flowchart LR
   pkg_web_search_perplexity["web-search-perplexity"]
   pkg_web_search_deepseek["web-search-deepseek"]
   pkg_web_deepseek_api["web-deepseek-api"]
+  pkg_web_search_duckduckgo["web-search-duckduckgo"]
   pkg_web_fetch_http["web-fetch-http"]
   pkg_spill["spill"]
   svc_spillStore["ctx.spillStore<br/>Spill storage seam"]
@@ -293,6 +294,12 @@ flowchart LR
   pkg_lsp["lsp"]
   svc_lsp["ctx.lsp<br/>Language-server navigation seam"]
   pkg_tool_lsp["tool-lsp"]
+  pkg_decision["decision"]
+  svc_decision["ctx.decision<br/>Typed decision seam"]
+  pkg_decision_jev["decision-jev"]
+  pkg_decision_laya["decision-laya"]
+  pkg_decision_llm["decision-llm"]
+  pkg_decision_consumers["decision-consumers"]
   pkg_cordis_host_runner["cordis-host-runner"]
   svc_dynamicCordisRunner["ctx.dynamicCordisRunner<br/>Dynamic Cordis package host runner"]
   svc_cordisInspect["ctx.cordisInspect<br/>Dynamic Cordis inspect registry"]
@@ -335,6 +342,10 @@ flowchart LR
   pkg_cordis_host_runner --> svc_dynamicCordisRunner
   pkg_credentials --> svc_credentials
   pkg_credentials_local --> svc_credentials
+  pkg_decision --> svc_decision
+  pkg_decision_jev --> svc_decision
+  pkg_decision_laya --> svc_decision
+  pkg_decision_llm --> svc_decision
   pkg_deepseek_account --> svc_deepseekAccount
   pkg_deepseek_account_platform --> svc_deepseekAccount
   pkg_deepseek_llm_api_extensions --> svc_deepseekLlmApiExtensions
@@ -445,6 +456,7 @@ flowchart LR
   pkg_web_deepseek_api --> svc_web
   pkg_web_fetch_http --> svc_web
   pkg_web_search_deepseek --> svc_web
+  pkg_web_search_duckduckgo --> svc_web
   pkg_web_search_exa --> svc_web
   pkg_web_search_perplexity --> svc_web
   pkg_webhook --> svc_webhookRuntime
@@ -484,6 +496,7 @@ flowchart LR
   svc_credentials --> pkg_api_settings_controller
   svc_credentials --> pkg_llm_deepseek
   svc_credentials --> pkg_llm_pi_ai
+  svc_decision --> pkg_decision_consumers
   svc_deepseekAccount --> pkg_api_account_controller
   svc_deepseekAccount --> pkg_llm_deepseek
   svc_deepseekLlmApiExtensions --> pkg_llm_deepseek
@@ -701,7 +714,7 @@ flowchart LR
 | `ctx.claudeCodeMods` | `core` | [`experimental-claude-code-mods`](../packages/experimental/claude-code-mods) | - | - | - | 加载 defineMod 插件添加的模组，从 harness 扩展点触发其钩子链，并通过其 Remote 绘制提示框上方的横幅。 |
 | `ctx.inspector` | `core` | `inspector` | - | - | - | 负责 Worker 托管的 CDP target，以及独立于传输的 Host 和 Client observation 与 Cordis tree query API。 |
 | `ctx.jobs` | `seam` | [`jobs`](../packages/jobs/jobs) | [`jobs-local`](../packages/jobs/jobs-local) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh), [`tool-terminal`](../packages/experimental/tool-terminal), [`tool-jobs`](../packages/jobs/tool-jobs), [`api-job-controller`](../packages/api/job-controller) | - | 生产方（后台 bash/pwsh 与 PTY 发送）登记正在运行的工作；声明 record 的 job 还为非消费观察者流式提供原始输出；tool-jobs 是面向模型的控制器，用于读取、列出和终止这些工作；jobs-local 是进程本地注册表。 |
-| `ctx.web` | `seam` | [`web`](../packages/web/web) | [`web-search-exa`](../packages/web/web-search-exa), [`web-search-perplexity`](../packages/web/web-search-perplexity), [`web-search-deepseek`](../packages/web/web-search-deepseek), [`web-deepseek-api`](../packages/web/web-deepseek-api), [`web-fetch-http`](../packages/web/web-fetch-http) | [`tool-web`](../packages/web/tool-web) | - | 搜索和抓取提供方注册到同一个 ctx.web seam；tool-web 负责稳定的面向模型名称。 |
+| `ctx.web` | `seam` | [`web`](../packages/web/web) | [`web-search-exa`](../packages/web/web-search-exa), [`web-search-perplexity`](../packages/web/web-search-perplexity), [`web-search-deepseek`](../packages/web/web-search-deepseek), [`web-deepseek-api`](../packages/web/web-deepseek-api), [`web-search-duckduckgo`](../packages/web/web-search-duckduckgo), [`web-fetch-http`](../packages/web/web-fetch-http) | [`tool-web`](../packages/web/tool-web) | - | 搜索和抓取提供方注册到同一个 ctx.web seam；tool-web 负责稳定的面向模型名称。 |
 | `ctx.spillStore` | `seam` | [`spill`](../packages/spill/spill) | [`spill-local`](../packages/spill/spill-local) | [`spill-policy`](../packages/spill/spill-policy) | - | 后端保存过大的工具文本，并返回面向模型的定位信息和取回提示；spill-policy 是 tools/post-execute 消费方，负责决定何时 spill。 |
 | `ctx.directoryPicker` | `seam` | [`host-directory-picker`](../packages/host/directory-picker) | [`host-directory-picker-native`](../packages/host/directory-picker-native), [`host-directory-picker-browse`](../packages/host/directory-picker-browse) | [`api-workspace-controller`](../packages/api/workspace-controller) | - | 带判别标记的交互能力：原生后端在 Host 显示设备上打开一个操作系统选择器，浏览后端为应用内浏览器提供列表与创建原语；双端后端通过其浏览器侧填充 ui-workspace 目录流程的 slot（不通过协议发布）。 |
 | `ctx.webServer` | `core` | [`host-webserver`](../packages/host/webserver) | - | [`client-connection`](../packages/client/connection), [`client-modules`](../packages/client/modules), [`client-hmr`](../packages/client/hmr) | - | 普通的 node:http 载体：具名路由注册表、索引转换 tap，以及静态 dist 回退；Web 传输插件注册自己的路由。 |
@@ -710,6 +723,7 @@ flowchart LR
 | `ctx.workflowEngine` | `seam` | [`workflow`](../packages/workflow/workflow) | [`workflow-ptc`](../packages/workflow/workflow-ptc) | [`tool-workflow`](../packages/workflow/tool-workflow), [`tool-ralph`](../packages/experimental/tool-ralph) | - | 每个上下文使用一个引擎，与 bash 相同，且没有具名提供方注册表；通用工作流与固定 Ralph 消费方启动运行，其中的 agent() 调用通过 ctx.subagents 扇出。 |
 | `ctx.webhookRuntime` | `core` | [`webhook`](../packages/experimental/webhook) | - | [`webhook-github`](../packages/experimental/webhook-github) | - | 提供方适配器分派已认证交付；可信插件注册独立的进程本地规则，runtime 把非 null 结果转换为普通的 Workspace-backed Session，不保留交付或完成状态。 |
 | `ctx.lsp` | `seam` | [`lsp`](../packages/lsp/lsp) | [`lsp-stdio`](../packages/lsp/lsp-stdio) | [`tool-lsp`](../packages/lsp/tool-lsp) | - | 提供方注册与选择，加上恰好四种操作的标准化查询执行；该 seam 不提供协议逃生口，后端必须转换为标准化请求和结果。 |
+| `ctx.decision` | `seam` | [`decision`](../packages/decision/decision) | [`decision-jev`](../packages/decision/decision-jev), [`decision-laya`](../packages/decision/decision-laya), [`decision-llm`](../packages/decision/decision-llm) | [`decision-consumers`](../packages/decision/decision-consumers) | - | 单一提供方注册表与单一提供方选择 `evaluate` 调用，在单次往返中回答封闭联合类型的选择、评分和布尔问题；消费方根据返回的校准概率进行门控，且消费方可在请求失败后热切换活动模型路由。 |
 | `ctx.dynamicCordisRunner` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | 拥有内存定义注册表、Host 半的 vm 沙箱和 request-run 往返流程；浏览器页面通过其 Remote 命名空间在线访问同一服务。 |
 | `ctx.cordisInspect` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | 注册 Host inspect 提供方、镜像 Client 提供方 manifest，并通过动态 Cordis 传输路由 Client 查询。 |
 

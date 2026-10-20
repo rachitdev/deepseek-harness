@@ -945,7 +945,7 @@ describe('sandbox escalation API (write/edit)', () => {
     const { ctx } = await setupConfining()
     for (const name of ['write', 'edit'] as const) {
       const props = fsSchema(ctx, name).parameters.properties
-      expect(props['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
+      expect(props['sandbox_permissions']?.enum).toEqual(['read-only', 'workspace-write', 'danger-full-access'])
       expect(props['justification']).toBeDefined()
     }
   })
@@ -1015,6 +1015,17 @@ describe('sandbox escalation API (write/edit)', () => {
     expect(result.isError).toBe(false)
     expect(fs.stamped).toEqual([{
       mode, workspaceRoot: '/session-project', sessionId: SessionId('sess-fs-esc'),
+    }])
+  })
+
+  it('writes under narrower workspace-write without approval when danger-full-access is effective', async () => {
+    const { ctx, fs } = await setupConfining()
+    const result = await call(ctx, 'write', {
+      file_path: 'a.txt', content: 'x', sandbox_permissions: 'workspace-write', justification: 'confine to workspace',
+    }, escalationAgent([{ type: 'sandbox/mode', data: { mode: 'danger-full-access' } }]))
+    expect(result.isError).toBe(false)
+    expect(fs.stamped).toEqual([{
+      mode: 'workspace-write', workspaceRoot: '/session-project', sessionId: SessionId('sess-fs-esc'),
     }])
   })
 

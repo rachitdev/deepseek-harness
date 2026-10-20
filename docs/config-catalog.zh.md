@@ -796,6 +796,250 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-credentials-local -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-decision -->
+<a id="deepseek-aidsh-decision"></a>
+
+## `@deepseek-ai/dsh-decision`
+
+- `source`: [`packages/decision/decision/src/index.ts:57`](../packages/decision/decision/src/index.ts)
+
+```ts config-catalog
+/**
+ * Config for the decision seam. `provider` pins which registered provider wins; omitting it
+ * auto-selects when exactly one usable provider is registered. Operational overrides feed this same
+ * field rather than introduce a hidden priority chain.
+ */
+export interface DecisionRuntimeConfig {
+  /** Explicit provider id. Omitted = auto-select when exactly one usable. */
+  readonly provider?: string
+  /** Fallback provider id triggered on-demand if the primary provider fails to respond. */
+  readonly fallbackProvider?: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-decision -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-decision-consumers -->
+<a id="deepseek-aidsh-decision-consumers"></a>
+
+## `@deepseek-ai/dsh-decision-consumers`
+
+- `inject`: `decision` · `llm`
+- `source`: [`packages/decision/decision-consumers/src/index.ts:88`](../packages/decision/decision-consumers/src/index.ts)
+
+```ts config-catalog
+/** Configuration interface for consumer defaults and live bindings. */
+export interface Config {
+  /** Default confidence threshold for ego-browser driving. */
+  readonly egoConfidenceThreshold?: number
+  /** Optional active-model recovery policy. */
+  readonly failover?: ModelFailoverConfig
+  /** Optional screening of plugin-injected memory recall. */
+  readonly recallFilter?: RecallFilterConfig
+  /** Optional per-turn model tier triage before generation. */
+  readonly turnTriage?: TurnTriageConfig
+}
+
+/** Live failover policy. Every pacing and selection value is composition-configurable. */
+export interface ModelFailoverConfig {
+  /** Whether request-error recovery may switch models. */
+  readonly enabled?: boolean
+  /** Ranked primary routes probed together during start racing and failure recovery. */
+  readonly candidates?: FailoverModelRoute[]
+  /**
+   * Lower-tier routes probed only if every eligible primary candidate fails. JEV can select among
+   * these survivors, but a healthy primary can never lose to a floor route.
+   */
+  readonly fallbackCandidates?: FailoverModelRoute[]
+  /** Union the live `subagent-model-selection.allowedModels` list with `candidates` when that setting is enabled. */
+  readonly useAllowedModels?: boolean
+  /**
+   * Probe every candidate route in parallel before the very first LLM call of a new agent and
+   * adopt whichever healthy responder JEV ranks best, instead of always starting on `candidates[0]`.
+   * The winner stays active for the rest of the session (cleared only by a fresh in-turn failure,
+   * which still recovers through the existing per-turn `recover` path below). Off by default: it
+   * adds one full probe-and-arbitrate round trip to the first message of every session.
+   */
+  readonly raceOnStart?: boolean
+  /**
+   * Failure codes that start probing. Unclassified provider errors (`PI_AI_ERROR`)
+   * are included by default so a dead route is not retried in place.
+   */
+  readonly triggerCodes?: string[]
+  /** Maximum healthy or failed routes probed concurrently, in source order. */
+  readonly maxCandidates?: number
+  /** Deadline for each candidate probe. */
+  readonly probeTimeoutMs?: number
+  /** Maximum output tokens for one probe. */
+  readonly probeMaxTokens?: number
+  /** Maximum user-task characters sent to the decision provider. */
+  readonly maxTaskChars?: number
+  /** Maximum probe-output characters retained for arbitration. */
+  readonly maxProbeOutputChars?: number
+}
+
+/** Live recall-filter policy. */
+export interface RecallFilterConfig {
+  /** Whether recall messages are screened. */
+  readonly enabled?: boolean
+  /** `source.plugin` of the recall messages to screen. */
+  readonly sourcePlugin?: string
+  /** `source.form` of the recall messages to screen. */
+  readonly sourceForm?: string
+  /** Items scoring below this position on the 0..3 usefulness rubric are omitted. */
+  readonly minRelevance?: number
+  /** Whether each item is also screened as a possible stored prompt injection. */
+  readonly screenInjection?: boolean
+  /** Injection probability at or above which an item is withheld. */
+  readonly injectionThreshold?: number
+  /** Whether an item the decision provider refused to evaluate is withheld rather than kept. */
+  readonly withholdUnscreenable?: boolean
+  /** Maximum items judged in one decision request. */
+  readonly batchSize?: number
+  /** Maximum characters of each item body sent to the decision provider. */
+  readonly maxItemChars?: number
+  /** Maximum user-request characters sent to the decision provider. */
+  readonly maxQueryChars?: number
+  /** Maximum characters of the previous assistant reply sent as conversation context; 0 omits it. */
+  readonly maxContextChars?: number
+  /** Deadline for the whole screening pass; on expiry the recall passes unchanged. */
+  readonly timeoutMs?: number
+}
+
+/** Live turn-triage policy. */
+export interface TurnTriageConfig {
+  /** Whether turns are triaged. */
+  enabled?: boolean
+  /** `advisory` logs the verdict only; `enforce` switches the turn's model requests to the tier route. */
+  mode?: 'advisory' | 'enforce'
+  /** Ordered tiers; at least two, with unique names. */
+  tiers?: TurnTriageTier[]
+  /** Tier used when the winning tier's probability is below `minConfidence`; must name a tier. */
+  fallbackTier?: string
+  /** Winning-tier probability below which `fallbackTier` is used instead. */
+  minConfidence?: number
+  /** Whether delegated (subagent) agents are triaged too. */
+  includeSubagents?: boolean
+  /** Maximum user-request characters sent to the decision provider. */
+  maxQueryChars?: number
+  /** Maximum characters of the previous assistant reply sent as context; 0 omits it. */
+  maxContextChars?: number
+  /** Deadline for the decision call; on expiry the turn keeps its configured model. */
+  timeoutMs?: number
+}
+
+/** Exact model route eligible to take over a failed Agent request. */
+export interface FailoverModelRoute {
+  /** Registered LLM provider id. */
+  readonly provider: string
+  /** Provider-owned model id. */
+  readonly model: string
+  /** Optional adapter-owned effort applied after takeover. */
+  readonly reasoningEffort?: string
+}
+
+/** One triage tier and the model route its turns use. */
+export interface TurnTriageTier {
+  /** Tier id offered to the decision provider as a choice option. */
+  name: string
+  /** Kinds of work that belong in this tier; the decision provider judges against it. */
+  description: string
+  /** Registered LLM provider id. */
+  provider: string
+  /** Provider-owned model id. */
+  model: string
+  /** Optional adapter-owned reasoning effort for this tier. */
+  reasoningEffort?: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-decision-consumers -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-decision-jev -->
+<a id="deepseek-aidsh-decision-jev"></a>
+
+## `@deepseek-ai/dsh-decision-jev`
+
+- `inject`: `decision`
+- `source`: [`packages/decision/decision-jev/src/index.ts:47`](../packages/decision/decision-jev/src/index.ts)
+
+```ts config-catalog
+/** Plugin config; every deployment-varying value is a validated field, not a constant. */
+export interface Config {
+  /** Literal TypeSafe key. Prefer `apiKeyEnv`; a literal is for throwaway local runs. */
+  apiKey?: string
+  /** Environment variable naming the TypeSafe key. */
+  apiKeyEnv?: string
+  /** TypeSafe API endpoint base. */
+  baseURL?: string
+  /** Direct TypeSafe model id. */
+  model?: string
+  /** Ceiling on one awaited call, in milliseconds; on expiry the fallback provider answers. */
+  timeoutMs?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-decision-jev -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-decision-laya -->
+<a id="deepseek-aidsh-decision-laya"></a>
+
+## `@deepseek-ai/dsh-decision-laya`
+
+- `inject`: `decision`
+- `source`: [`packages/decision/decision-laya/src/index.ts:62`](../packages/decision/decision-laya/src/index.ts)
+
+```ts config-catalog
+/** Plugin configuration schema. */
+export interface Config {
+  /** Python interpreter executable path. */
+  pythonPath?: string
+  /** Path to worker.py. */
+  workerScriptPath?: string
+  /** Loopback host address. */
+  host?: string
+  /** Local port to serve on. */
+  port?: number
+  /** Idle timeout in seconds before the worker process auto-terminates. */
+  idleTimeoutSeconds?: number
+  /** Maximum milliseconds to wait for cold model loading. */
+  startupTimeoutMs?: number
+  /** Timeout in milliseconds for one worker health probe. */
+  healthTimeoutMs?: number
+  /** Delay in milliseconds between worker readiness probes. */
+  startupPollIntervalMs?: number
+  /** Base URL for the worker HTTP API. */
+  baseURL?: string
+  /** HuggingFace repo or local snapshot path. */
+  model?: string
+  /** Checkpoint subfolder within the HuggingFace repository. */
+  modelSubfolder?: string
+  /** Hugging Face hub cache directory where the checkpoint is stored. */
+  hubCacheDir?: string
+  /** Explicit availability override. */
+  available?: boolean
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-decision-laya -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-decision-llm -->
+<a id="deepseek-aidsh-decision-llm"></a>
+
+## `@deepseek-ai/dsh-decision-llm`
+
+- `inject`: `decision` · `llm`
+- `source`: [`packages/decision/decision-llm/src/index.ts:30`](../packages/decision/decision-llm/src/index.ts)
+
+```ts config-catalog
+/** Plugin config; the route is deployment-varying, so it is required rather than guessed. */
+export interface Config {
+  /** Registered LLM provider route serving decisions. */
+  provider: string
+  /** Exact model id on that route. A cheap, fast model is the point of this provider. */
+  model: string
+  /** Upper bound on the JSON reply. */
+  maxTokens?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-decision-llm -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-deepseek-account-platform -->
 <a id="deepseek-aidsh-deepseek-account-platform"></a>
 
@@ -1201,6 +1445,29 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-speech-to-text -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-speech-to-text-apple-native -->
+<a id="deepseek-aidsh-experimental-speech-to-text-apple-native"></a>
+
+## `@deepseek-ai/dsh-experimental-speech-to-text-apple-native`
+
+- `inject`: `speechToText`
+- `source`: [`packages/experimental/speech-to-text-apple-native/src/index.ts:16`](../packages/experimental/speech-to-text-apple-native/src/index.ts)
+
+```ts config-catalog
+/** Local executable and accepted recognition locales; no model download is performed by DSH. */
+export interface Config {
+  /** Path to the apple-native-mcp executable on the host machine. */
+  command: string
+  /** Provider identifier registered with the speechToText service. */
+  providerId: string
+  /** BCP-47 locale identifiers supported by this on-device provider. */
+  locales: string[]
+  /** Maximum duration in milliseconds to await recognition completion. */
+  timeoutMs: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-speech-to-text-apple-native -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-speech-to-text-sensevoice -->
 <a id="deepseek-aidsh-experimental-speech-to-text-sensevoice"></a>
@@ -4014,13 +4281,64 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-skill`
 
 - `inject`: `agents` · `tools` · `skills` · `workingDirectory`
-- `source`: [`packages/skill/tool-skill/src/index.ts:62`](../packages/skill/tool-skill/src/index.ts)
+- `source`: [`packages/skill/tool-skill/src/index.ts:75`](../packages/skill/tool-skill/src/index.ts)
 
 ```ts config-catalog
 /** Model-facing skill catalog configuration. */
 export interface Config {
   /** Maximum normalized description length rendered in the session catalog; minimum 3. */
   catalogDescriptionMaxLength?: number
+  /**
+   * Skills whose full instructions join every assembled system prompt, loaded
+   * fresh per assembly with the calling agent's cwd and scope. Names must be
+   * valid skill names; a name that resolves to nothing, fails to load, or is
+   * not model-invocable is skipped for that assembly rather than failing the
+   * step. An empty array disables pinned injection. Defaults to
+   * {@link DEFAULT_PINNED_SKILLS} (the DTGS router).
+   */
+  pinnedSkills?: string[]
+  /** Adjudicate model-selected skills through the mounted decision provider. Defaults to false. */
+  skillAdjudication?: boolean
+  /** Maximum lexical shortlist size, including the model-proposed skill. Defaults to 16. */
+  skillAdjudicationMaxCandidates?: number
+  /** JEV relevance probability required for final comparison. Defaults to 0.65. */
+  skillAdjudicationRelevanceThreshold?: number
+  /** JEV phase probability required to load a companion skill. Defaults to 0.55. */
+  skillAdjudicationPhaseConfidence?: number
+  /** Maximum user-task characters sent to the decision provider. Defaults to 4000. */
+  skillAdjudicationMaxTaskChars?: number
+  /**
+   * Advisory two-stage (category, then skill) cascade over the live catalog, run in the
+   * background on each user turn and compared with the model's `skill` call in the log only.
+   * Requires a mounted decision service when enabled.
+   */
+  skillCascade?: SkillCascadeConfig
+}
+
+/** Advisory skill-cascade configuration. */
+export interface SkillCascadeConfig {
+  /** Run the advisory cascade. Defaults to false. */
+  enabled?: boolean
+  /** Stage-one categories in judging order; a skill listed twice belongs to its first category. */
+  categories?: SkillCascadeCategoryConfig[]
+  /** Name of the category holding every live skill no configured category lists. Defaults to `other`. */
+  ungroupedName?: string
+  /** Description of the ungrouped category. */
+  ungroupedDescription?: string
+  /** Maximum user-task characters sent to the decision provider. Defaults to 4000. */
+  maxTaskChars?: number
+  /** Deadline for both cascade stages together. Defaults to 10000 ms. */
+  timeoutMs?: number
+}
+
+/** One configured stage-one category. */
+export interface SkillCascadeCategoryConfig {
+  /** Category id reported in advisory logs. */
+  name: string
+  /** Routing description judged by the decision provider. */
+  description: string
+  /** Skill names in this category; names absent from the live catalog are skipped. */
+  skills: string[]
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-skill -->
@@ -4143,7 +4461,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-web`
 
 - `inject`: `tools` · `web` · `systemPrompt`
-- `source`: [`packages/web/tool-web/src/index.ts:37`](../packages/web/tool-web/src/index.ts)
+- `source`: [`packages/web/tool-web/src/index.ts:39`](../packages/web/tool-web/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: which web tools to register, search bounds, per-tool budgets, and the fetch output cap. */
@@ -4162,6 +4480,14 @@ export interface Config {
   searchTimeoutMs?: number
   /** Cap on source characters converted and complete `web_fetch` output characters. Defaults to 200000. */
   fetchMaxOutputChars?: number
+  /** Screen fetched text with the configured decision provider before returning it. Defaults to false. */
+  fetchGuardrail?: boolean
+  /** Hazard probability at or above which fetched text is withheld. Defaults to 0.70. */
+  fetchGuardrailBlockThreshold?: number
+  /** Hazard probability at or above which fetched text is withheld for review. Defaults to 0.30. */
+  fetchGuardrailReviewThreshold?: number
+  /** Maximum fetched characters sent to the decision provider. Defaults to 8000. */
+  fetchGuardrailMaxStateCharacters?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-web -->
@@ -4441,6 +4767,25 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-web-search-deepseek -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-web-search-duckduckgo -->
+<a id="deepseek-aidsh-web-search-duckduckgo"></a>
+
+## `@deepseek-ai/dsh-web-search-duckduckgo`
+
+- `inject`: `web`
+- `source`: [`packages/web/web-search-duckduckgo/src/index.ts:37`](../packages/web/web-search-duckduckgo/src/index.ts)
+
+```ts config-catalog
+/** Plugin config (all optional — `apply` fills constant defaults). */
+export interface Config {
+  /** Endpoint base serving the Lite HTML page. Defaults to the public endpoint. */
+  baseURL?: string
+  /** Region filter sent as the `kl` parameter (e.g. `us-en`). Omitted sends none. */
+  region?: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-web-search-duckduckgo -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-web-search-exa -->
 <a id="deepseek-aidsh-web-search-exa"></a>

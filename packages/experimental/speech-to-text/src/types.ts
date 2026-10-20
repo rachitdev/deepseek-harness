@@ -102,6 +102,8 @@ export interface SpeechPreparation {
 export interface SpeechInput {
   readonly audio: Uint8Array
   readonly language: string
+  /** Optional audio media type (for example `audio/wav`, `audio/mp4`, or `audio/mpeg`); defaults to WAV when omitted. */
+  readonly mimeType?: string
 }
 
 /** Final transcription; an empty string means no speech was recognized. */
@@ -129,6 +131,8 @@ export interface SpeechRequest {
   readonly audio: Uint8Array
   readonly providerId?: SpeechProviderId
   readonly language?: string
+  /** Optional audio media type forwarded to the selected recognizer. */
+  readonly mimeType?: string
 }
 
 /** Resolved selection pins the exact registered provider, including its lifetime. */

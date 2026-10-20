@@ -349,6 +349,19 @@ describe('dsh-tool-skill', () => {
     expect(renderPrompt(await ctx.systemPrompt.assemble({ agent: agentForCwd('/workspace') }))).not.toContain('<available_skills>')
   })
 
+  it('excludes pinned skills from the available-skills catalog', async () => {
+    const home = await tempDir('tool-catalog-excludes-pinned')
+    const pinned = 'dsh-design-thinking-general'
+    const ctx = await setup(home, { pinnedSkills: [pinned] })
+    await writePolicySkill(join(home, '.dsh', 'skills'), pinned, 'DTGS router', '', 'Router body.')
+    await writeSkill(join(home, '.dsh', 'skills'), 'other-skill', 'Other', 'Other body.')
+    const agent = agentForCwd(home)
+    const prefix = await composePrefixForAgent(ctx, agent)
+    const rendered = JSON.stringify(prefix)
+    expect(rendered).toContain('other-skill')
+    expect(rendered).not.toContain(pinned)
+  })
+
   it('does not inject a catalog when no model-invocable skills are available', async () => {
     const home = await tempDir('tool-empty-catalog')
     const ctx = await setup(home)
@@ -1393,6 +1406,27 @@ describe('pinned system-prompt injection', () => {
     // the conversation, exactly where the invocation injection lands in a step.
     expect(lastName).toBe(`skill:pinned:${PINNED}`)
     expect(rendered).toContain('Route every open-ended ask through the intake gate.')
+  })
+
+  it('uses the agent cwd via workingDirectory for pinned skill lookup', async () => {
+    const { ctx } = await pinHarness()
+    const project = await tempDir('pinned-wd-project')
+    await writePolicySkill(join(project, '.dsh', 'skills'), PINNED, 'DTGS router (wd)', '', 'Working-directory lookup.')
+    const projectAgent = agentForCwd(project)
+    const assembly = await ctx.systemPrompt.assemble({ agent: projectAgent, scope: projectAgent })
+    const section = assembly.sections.find(entry => entry.name === `skill:pinned:${PINNED}`)
+    expect(section?.text).toContain('Working-directory lookup.')
+  })
+
+  it('pins a skill once when two tool-skill instances serve the same agent', async () => {
+    const { ctx, agent } = await pinHarness()
+    // A preset row and a profile row both mount the plugin, each hooking the same assembly; the
+    // second instance lives in an isolated tool scope, as an agent-preset composition does.
+    const nested = ctx.isolate('tools')
+    await nested.plugin(ToolRuntime)
+    await nested.plugin(toolSkill, {})
+    const assembly = await ctx.systemPrompt.assemble({ agent, scope: agent })
+    expect(assembly.sections.filter(entry => entry.name === `skill:pinned:${PINNED}`)).toHaveLength(1)
   })
 
   it('resolves pinned bodies with the agent cwd, so a project copy wins', async () => {

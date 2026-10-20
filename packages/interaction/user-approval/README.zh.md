@@ -121,6 +121,8 @@ Approval policy: ask. Operations that require approval may ask through the confi
 Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).
 ```
 
+当有效策略为 `never` 时，提示词组装还会从每个工具 schema 中移除 `sandbox_permissions` 与 `justification`，并去掉工具描述中的同轮次升权重试提示。注册表 schema 保持完整，因此之后切换到 `ask` 时仍有该杠杆。
+
 #### Token 影响
 
 首次请求和策略实际变化时增加一条简洁的上下文消息；未变化的请求不增加重复的策略 token。

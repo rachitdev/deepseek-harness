@@ -24,6 +24,8 @@ declare module '@deepseek-ai/dsh-llm' {
 
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
+import type { ShellExecRequest } from '@deepseek-ai/dsh-shell'
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import {
   appendHookInvoked,
@@ -132,6 +134,19 @@ export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => () => detached.drain(), 'hooks-claude-code: drain detached hook runs')
 
   /**
+   * The calling session's file-effect policy, when a policy service is mounted.
+   * Hook processes must not outrun that policy. An absent service omits the
+   * field so the executor keeps its own default.
+   * @param agent - the agent whose session owns the policy, when this point has one.
+   * @returns the request field, or an empty object when no policy is resolved.
+   */
+  function hookSandboxPolicy(agent: Agent | undefined): { sandboxPolicy?: ShellExecRequest['sandboxPolicy'] } {
+    const service = ctx.get('sandboxPolicy')
+    if (service === undefined) return {}
+    return { sandboxPolicy: service.resolve(agent === undefined ? {} : { session: agent.session }) }
+  }
+
+  /**
    * Run every command hook configured for `point` whose matcher selects
    * `matchQuery`, with the per-event `payload` on stdin, and fold the results.
    * Writes a `hook/invoked`/`hook/result` pair per hook when `opts.turn` names
@@ -176,6 +191,7 @@ export function apply(ctx: Context, config: Config): void {
           // Discard a `hookSpecificOutput` block whose `hookEventName` names a
           // different event than the one firing (the schemas key it by event).
           expectedEventName: point,
+          ...hookSandboxPolicy(opts.agent),
         }, () => performance.now())
         outputs.push(output)
         if (output.updatedInput !== undefined) {

@@ -1,8 +1,8 @@
 /**
- * Parser and renderer for recall blocks built from OpenViking `<memory>` elements: a header, one
- * element per recalled item (`<memory uri="…" …>body</memory>` or self-closing `<memory uri="…" />`),
- * and a trailer. Text between elements is retained verbatim so a re-rendered block differs from the
- * original only in the items a caller removed or replaced.
+ * Parser and renderer for recall blocks. OpenViking blocks are a header, one `<memory uri="…">`
+ * element per item, and a trailer. CortexDB blocks are a header, markdown bullets
+ * (`- <title|id>: <snippet>`), and a footer. Text between items is retained verbatim so a
+ * re-rendered block differs from the original only in the items a caller removed or replaced.
  * @module @deepseek-ai/dsh-decision-consumers/recall-block
  */
 
@@ -27,30 +27,58 @@ export interface ParsedRecallBlock {
 
 const MEMORY_ELEMENT = /<memory\s([^>]*?)(?:\/>|>([\s\S]*?)<\/memory>)/g
 const URI_ATTRIBUTE = /\buri="([^"]*)"/
+/** CortexDB injects one bullet per hit: `- ${title || id}: ${snippet}`. The separator is colon-space, so ids may contain `://`. */
+const MARKDOWN_ITEM = /^- (.+?): (.+)$/gm
 
 /**
- * Split one recall block into its `<memory>` items.
+ * Split one recall block into its items.
  * @param text - the recall message text.
- * @returns the parsed block, or `undefined` when it holds no element with a `uri` attribute, so
- *   callers pass unrecognized recall formats through unchanged.
+ * @returns the parsed block, or `undefined` when it holds neither a `<memory>` element with a
+ *   `uri` attribute nor a CortexDB markdown bullet, so callers pass unrecognized formats through.
  */
 export function parseRecallBlock(text: string): ParsedRecallBlock | undefined {
-  const items: RecallBlockItem[] = []
-  let header: string | undefined
-  let cursor = 0
-  for (const match of text.matchAll(MEMORY_ELEMENT)) {
+  return text.includes('<memory') ? parseMemoryElements(text) : parseMarkdownItems(text)
+}
+
+function parseMemoryElements(text: string): ParsedRecallBlock | undefined {
+  return parseItems(text, MEMORY_ELEMENT, (match) => {
     // oxlint-disable-next-line typescript/no-non-null-assertion -- group 1 always participates in a match
     const uri = URI_ATTRIBUTE.exec(match[1]!)?.[1]
     if (uri === undefined) return undefined
-    const leading = text.slice(cursor, match.index)
+    return { uri, content: (match[2] ?? '').trim() }
+  })
+}
+
+function parseMarkdownItems(text: string): ParsedRecallBlock | undefined {
+  return parseItems(text, MARKDOWN_ITEM, (match) => {
+    const uri = match[1]
+    const content = match[2]
+    if (uri === undefined || content === undefined || content.trim().length === 0) return undefined
+    return { uri, content: content.trim() }
+  })
+}
+
+function parseItems(
+  text: string,
+  pattern: RegExp,
+  read: (match: RegExpMatchArray) => { uri: string; content: string } | undefined,
+): ParsedRecallBlock | undefined {
+  const items: RecallBlockItem[] = []
+  let header: string | undefined
+  let cursor = 0
+  for (const match of text.matchAll(pattern)) {
+    const readItem = read(match)
+    const index = match.index
+    if (readItem === undefined || index === undefined) return undefined
+    const leading = text.slice(cursor, index)
     if (header === undefined) header = leading
     items.push({
-      uri,
-      content: (match[2] ?? '').trim(),
+      uri: readItem.uri,
+      content: readItem.content,
       element: match[0],
       leading: items.length === 0 ? '' : leading,
     })
-    cursor = match.index + match[0].length
+    cursor = index + match[0].length
   }
   if (header === undefined) return undefined
   return { header, items, trailer: text.slice(cursor) }
@@ -60,7 +88,7 @@ export function parseRecallBlock(text: string): ParsedRecallBlock | undefined {
 export type RecallItemRendering =
   | { readonly kind: 'keep' }
   | { readonly kind: 'drop' }
-  /** Replace the element with a self-closing stub carrying the uri and one marker attribute. */
+  /** Replace the item with a stub that keeps its uri and one withhold marker. */
   | { readonly kind: 'stub'; readonly marker: string }
 
 function escapeAttribute(value: string): string {
@@ -74,7 +102,9 @@ function renderedElement(item: RecallBlockItem, rendering: RecallItemRendering):
     case 'drop':
       return undefined
     case 'stub':
-      return `<memory uri="${escapeAttribute(item.uri)}" screened="${escapeAttribute(rendering.marker)}" />`
+      return item.element.startsWith('- ')
+        ? `- ${item.uri}: ${rendering.marker}`
+        : `<memory uri="${escapeAttribute(item.uri)}" screened="${escapeAttribute(rendering.marker)}" />`
   }
 }
 

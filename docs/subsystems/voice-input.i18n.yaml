@@ -3,17 +3,17 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/voice-input.md
 /voice-input:
-  en: b21f58d0dcb90287
-  zh: be60807d02623a87
+  en: 0a7759b30238c44e
+  zh: 6b7a46f198260bc5
 /voice-input/provider-selection:
-  en: 3a5ec4718b839349
-  zh: a8448bd6064d4c81
+  en: 61f24d24aeb06dab
+  zh: 20034b7f1a18d0a3
 /voice-input/browser-and-host-ownership:
   en: 404d67d8276522db
   zh: f653397888d2e616
 /voice-input/preparation-and-settings:
-  en: 9350b2e58813262e
-  zh: c3b5e5cb100408af
+  en: 0f961b19fd6695bf
+  zh: 8cf0b5a12c24f757
 /voice-input/design-rationale:
   en: 604b86d95ac007b3
   zh: 472db5ba5905eddc

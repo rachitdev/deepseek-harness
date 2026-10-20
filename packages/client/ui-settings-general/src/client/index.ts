@@ -127,11 +127,19 @@ export function apply(ctx: ClientContext): void {
     // Post first so the Host can stop the dependents it started, then close
     // this tab. window.close() only works for script-opened windows, so a
     // blocked close falls back to blanking the page.
-    void fetch('/__dsh/shutdown', { method: 'POST' })
-      .catch(() => {
-        /* The Host may close the socket before the response lands. */
-      })
-      .finally(() => {
+    void fetch('/__dsh/shutdown', {
+      method: 'POST',
+      // This endpoint must be protected against cross-origin requests. If the
+      // Host is not reachable, or rejects the request, keep the page visible
+      // so the user can act on the error rather than closing a working tab.
+      headers: { Accept: 'text/plain' },
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          // Surface the failure visibly rather than closing a still-running DSH.
+          console.error('[ui-settings-general] shutdown request failed', response.status, await response.text().catch(() => ''))
+          return
+        }
         try {
           window.close()
         } catch {
@@ -140,6 +148,15 @@ export function apply(ctx: ClientContext): void {
         window.setTimeout(() => {
           if (!window.closed) window.location.replace('about:blank')
         }, 300)
+      })
+      .catch((error) => {
+        // The Host may close the socket before the response lands; that is
+        // still considered a successful shutdown attempt.
+        if ((error instanceof TypeError || String(error).includes('Failed to fetch')) && !navigator.onLine) {
+          // Network went away; the page cannot tell whether shutdown succeeded.
+          return
+        }
+        console.error('[ui-settings-general] shutdown request failed', error)
       })
   }
   const shellInjected = (): SettingsRootInjected => ({

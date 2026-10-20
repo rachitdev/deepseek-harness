@@ -5,6 +5,7 @@ import * as jevPlugin from '@deepseek-ai/dsh-decision-jev'
 import type { JevAnswer } from '@deepseek-ai/dsh-decision-jev/src/types.ts'
 import {
   JEV_DEFAULT_BASE_URL,
+  JEV_DEFAULT_TIMEOUT_MS,
   JEV_EVALUATION_PATH,
   JevDecisionProvider,
   fromJevAnswer,
@@ -39,7 +40,7 @@ function makeProvider(overrides: Partial<ConstructorParameters<typeof JevDecisio
 
 /** Install a scripted `fetch`, returning the spy so a test can assert the request it sent. */
 function stubFetch(response: Response | Error) {
-  const spy = vi.fn(() => response instanceof Error ? Promise.reject(response) : Promise.resolve(response))
+  const spy = vi.fn<typeof fetch>(() => response instanceof Error ? Promise.reject(response) : Promise.resolve(response))
   vi.stubGlobal('fetch', spy)
   return spy
 }
@@ -221,7 +222,42 @@ describe('JevDecisionProvider evaluation', () => {
     const controller = new AbortController()
     await makeProvider().evaluate(request, controller.signal)
     const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
-    expect(init.signal).toBe(controller.signal)
+    expect(init.signal?.aborted).toBe(false)
+    controller.abort()
+    expect(init.signal?.aborted).toBe(true)
+  })
+
+  /** Install a `fetch` that never settles until its signal aborts, like a stalled upstream. */
+  function stubHangingFetch() {
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      const signal = init.signal
+      if (signal?.aborted === true) {
+        reject(signal.reason as Error)
+        return
+      }
+      signal?.addEventListener('abort', () => { reject(signal.reason as Error) })
+    })))
+  }
+
+  it('fails a call still pending at the deadline as a provider error, so the fallback runs', async () => {
+    stubHangingFetch()
+    const started = performance.now()
+    await expect(makeProvider({ timeoutMs: 30 }).evaluate(request)).rejects.toThrow(
+      expect.objectContaining({ code: 'DECISION_PROVIDER_ERROR', message: 'Jev did not answer within 30 ms' }) as Error,
+    )
+    expect(performance.now() - started).toBeLessThan(1_000)
+  })
+
+  it('keeps a caller cancellation an abort even when a deadline is configured', async () => {
+    stubHangingFetch()
+    const controller = new AbortController()
+    const pending = makeProvider({ timeoutMs: 5_000 }).evaluate(request, controller.signal)
+    controller.abort()
+    await expect(pending).rejects.toThrow(expect.objectContaining({ code: 'DECISION_ABORTED' }) as Error)
+  })
+
+  it('defaults the deadline to three seconds', () => {
+    expect(JEV_DEFAULT_TIMEOUT_MS).toBe(3_000)
   })
 })
 
@@ -363,6 +399,26 @@ describe('decision-jev defaults without schema filling', () => {
       const [url, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
       expect(url).toBe(`${JEV_DEFAULT_BASE_URL}${JEV_EVALUATION_PATH}`)
       expect(JSON.parse(init.body as string)).toMatchObject({ model: 'jev-latest' })
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('lets TYPESAFE_MODEL win after schema resolution when model is unset', async () => {
+    vi.stubEnv('TYPESAFE_API_KEY', 'env-key')
+    vi.stubEnv('TYPESAFE_MODEL', 'jev-dynamic-latest')
+    const spy = stubFetch(jsonResponse({ answers: fullAnswers }))
+    try {
+      const resolved = jevPlugin.Config({})
+      expect(resolved.model).toBeUndefined()
+      const ctx = new Context()
+      await ctx.plugin(DecisionRuntime, {})
+      jevPlugin.apply(ctx, resolved)
+      await ctx.decision.evaluate(request)
+      const body = spy.mock.calls[0]?.[1]?.body
+      expect(typeof body).toBe('string')
+      if (typeof body !== 'string') return
+      expect(JSON.parse(body)).toMatchObject({ model: 'jev-dynamic-latest' })
     } finally {
       vi.unstubAllEnvs()
     }

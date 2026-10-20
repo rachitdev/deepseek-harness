@@ -11,6 +11,7 @@ import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import SandboxPolicyService, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import SubagentRuntime, { SubagentRunId } from '@deepseek-ai/dsh-subagent'
@@ -53,7 +54,7 @@ async function harness(configDir: string, adapter: MockAdapter, beforeHooks?: (c
 async function harnessWithFiber(
   configDir: string,
   adapter: MockAdapter,
-  beforeHooks?: (ctx: Context) => void,
+  beforeHooks?: (ctx: Context) => void | Promise<void>,
 ): Promise<{ ctx: Context; hooks: Fiber }> {
   const ctx = new Context()
   provideWorkingDirectoryFixture(ctx)
@@ -61,7 +62,7 @@ async function harnessWithFiber(
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-  beforeHooks?.(ctx)
+  await beforeHooks?.(ctx)
   const hooks = await ctx.plugin(HooksClaude, { configPath: join(configDir, 'hooks.json') })
   ctx.llm.registerAdapter(['mock'], adapter)
   return { ctx, hooks }
@@ -116,6 +117,27 @@ describe('unmatched hooks and directory recovery', () => {
       ensure.mockRestore()
       await ctx.fiber.dispose()
     }
+  })
+})
+
+describe('hooks-claude-code sandbox policy', () => {
+  it('forwards the session sandbox policy into the hook process', async () => {
+    const dir = writeConfig({ UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'true' }] }] })
+    const ctx = await harness(dir, new MockAdapter([textResponse('ok')]), async (mounted) => {
+      await mounted.plugin(SandboxPolicyService, { mode: 'read-only', workspaceRoot: dir })
+    })
+    const seen: Array<string | undefined> = []
+    const resolve = ctx.shell.resolve.bind(ctx.shell)
+    vi.spyOn(ctx.shell, 'resolve').mockImplementation((request) => {
+      seen.push(request.sandboxPolicy?.mode)
+      return resolve(request)
+    })
+    const agent = await ctx.agentLoop.create(SessionId('hook-sandbox'), { provider: 'mock', model: 'mock' })
+    setSandboxMode(agent.session, 'workspace-write')
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+    expect(seen).toContain('workspace-write')
+    await ctx.fiber.dispose()
   })
 })
 

@@ -11,12 +11,15 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 
 export {
   ESCALATION_TARGETS,
+  SANDBOX_MODES,
   WIDER_MODES,
   approveEscalation,
   escalationHintMarker,
   sandboxDenialMarker,
   sandboxPermissionsDescription,
+  mapTextWithoutEscalationHint,
   validateEscalationArgs,
+  withoutEscalationHint,
 } from './escalation.ts'
 export type { EscalationApproval, EscalationApprover, EscalationOutcome, EscalationRequest } from './escalation.ts'
 export { canonicalPath, writableRoots } from './roots.ts'

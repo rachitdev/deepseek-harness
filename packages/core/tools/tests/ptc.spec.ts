@@ -2377,7 +2377,7 @@ describe('per-program execution controls', () => {
     { sandbox_permissions: 'workspace-write' },
     { justification: 'Need writes' },
     { sandbox_permissions: 'workspace-write', justification: ' ' },
-    { sandbox_permissions: 'read-only', justification: 'No widening' },
+    { sandbox_permissions: 'not-a-mode', justification: 'No widening' },
   ])('rejects invalid escalation pairing or mode: %j', async (args) => {
     const { ctx, runtime, execute } = await controlledSetup()
     const ask = vi.fn(() => Promise.resolve<ApprovalOutcome>('allowed-once'))

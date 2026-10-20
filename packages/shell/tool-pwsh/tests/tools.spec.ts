@@ -639,7 +639,7 @@ describe('sandbox escalation through ctx.approval', () => {
     const { ctx } = await setupSandboxed()
     const schema = ctx.tools.schemas().find(item => item.name === 'pwsh')!
     const properties = schema.parameters.properties as Record<string, { enum?: string[]; description?: string }>
-    expect(properties['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
+    expect(properties['sandbox_permissions']?.enum).toEqual(['read-only', 'workspace-write', 'danger-full-access'])
     expect(properties['sandbox_permissions']?.description).toContain('asks the user for approval')
     expect(schema.description).toContain('ConstrainedLanguage')
     expect(schema.description).toContain('workspace-write stays in FullLanguage')
@@ -664,7 +664,7 @@ describe('sandbox escalation through ctx.approval', () => {
     expect(schema.parameters.properties).not.toHaveProperty('sandbox_permissions')
   })
 
-  it('rejects injected escalation without a sandbox and narrower escalation without prompting', async () => {
+  it('rejects injected escalation without a sandbox and runs a narrower call without prompting', async () => {
     const plain = await setup()
     expect(text(await call(plain.ctx, 'pwsh', escalate))).toContain('not available in this composition')
 
@@ -672,7 +672,8 @@ describe('sandbox escalation through ctx.approval', () => {
     const prompted = vi.fn()
     ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
     const result = await call(ctx, 'pwsh', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('danger-full-access'))
-    expect(text(result)).toContain('not strictly wider')
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('ok')
     expect(prompted).not.toHaveBeenCalled()
 
     const malformed = sandboxAgent()
@@ -680,7 +681,7 @@ describe('sandbox escalation through ctx.approval', () => {
       type: string,
       data: Record<string, unknown>,
     ) => unknown)('sandbox/mode', { mode: 'unknown-mode' })
-    expect(text(await call(ctx, 'pwsh', escalate, malformed))).toContain('not strictly wider')
+    expect(text(await call(ctx, 'pwsh', escalate, malformed))).toContain('unsupported current sandbox mode')
   })
 
   it.each(['workspace-write', 'danger-full-access'] as const)('runs a repeated %s request without approval', async (mode) => {

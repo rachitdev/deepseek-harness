@@ -69,7 +69,7 @@ web_search({ queries: ['deepseek harness documentation'] })
 
 ### 使用 web_fetch
 
-用一个 `url` 调用 `web_fetch`。HTML 主体经过过滤后渲染为 markdown（含 GFM 表格与删除线）；文本主体在不可信内容提示下原样通过。启用 `fetchGuardrail` 时，已挂载的 decision 提供方会在渲染前评估提示注入与凭据收集危害；`review` 与 `block` 判定会用有界诊断替换抓取主体，提供方错误则使工具调用失败，而不是返回未复核文本。非 2xx 状态会在结果中报告，而不是作为错误抛出。截断内容会追加 `(Content truncated. Fetch a more specific URL or section for the full text.)`。
+用一个 `url` 调用 `web_fetch`。HTML 主体经过过滤后渲染为 markdown（含 GFM 表格与删除线）；文本主体在不可信内容提示下原样通过。启用 `fetchGuardrail` 时，已挂载的 decision 提供方筛查这段提取文本的提示注入与凭据收集危害；`review` 与 `block` 判定会用有界诊断替换抓取主体，诊断不点名 decision 提供方。除调用方取消外，guardrail 失败也会用可操作的状态扣留主体，而不是返回未复核文本。非 2xx 状态会在结果中报告，而不是作为错误抛出。截断内容会追加 `(Content truncated. Fetch a more specific URL or section for the full text.)`。
 
 ```text
 web_fetch({ url: 'https://example.com' })

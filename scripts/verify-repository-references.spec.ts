@@ -72,6 +72,24 @@ describe('unique object-name prefix search', () => {
 })
 
 describe('maintained repository reference policy', () => {
+  it.each([7, 10, 12, 39])('does not interpret %i-digit counters as abbreviated commit identifiers', (length) => {
+    const decimal = '6'.repeat(length)
+    expect(findRepositoryReferences('python/sdk/uv.lock', `size = ${decimal}`, new Set([decimal]))).toEqual([])
+  })
+
+  it.each(['a123456', '123456A', '6'.repeat(40)])('still rejects a known hexadecimal identifier %s', (identifier) => {
+    expect(findRepositoryReferences('source.md', identifier, new Set([identifier.toLowerCase()])))
+      .toEqual([{ file: 'source.md', line: 1, kind: 'commit-hash' }])
+  })
+
+  it('does not take a numeric prefix or a suffix from a longer token', () => {
+    const decimal = '6'.repeat(40)
+    const commits = new Set([decimal, '123456a'])
+    for (const token of [`${decimal}6`, `${decimal}a`, 'prefix123456a', '123456asuffix']) {
+      expect(findRepositoryReferences('source.md', token, commits)).toEqual([])
+    }
+  })
+
   it('permits only the independent kit repository and its source URLs', () => {
     for (const suffix of ['', '.git', '/tree/main/packages/entry']) {
       expect(findRepositoryReferences('package.json', `${organizationUrl}/libreoffice-kit${suffix}`, new Set())).toEqual([])

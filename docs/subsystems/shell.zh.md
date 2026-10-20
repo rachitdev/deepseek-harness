@@ -275,6 +275,14 @@ abstract resolve(request: ShellExecRequest): ShellExecSpec
  * @throws on preparation failure or caller cancellation before process publication.
  */
 abstract execute(spec: ShellExecSpec): Promise<ShellExecution>
+
+/**
+ * Run a resolved spec to completion and return its settled foreground result.
+ * Preserved for backward compatibility with 0.1.x plugins.
+ * @param spec - a resolved spec from {@link resolve}.
+ * @returns the settled foreground result.
+ */
+async run(spec: ShellExecSpec): Promise<ShellRunResult>
 ```
 
 Source: [`packages/shell/shell/src/index.ts`](../../packages/shell/shell/src/index.ts)

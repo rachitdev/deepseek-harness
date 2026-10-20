@@ -265,6 +265,7 @@ flowchart LR
   pkg_web_search_perplexity["web-search-perplexity"]
   pkg_web_search_deepseek["web-search-deepseek"]
   pkg_web_deepseek_api["web-deepseek-api"]
+  pkg_web_search_duckduckgo["web-search-duckduckgo"]
   pkg_web_fetch_http["web-fetch-http"]
   pkg_spill["spill"]
   svc_spillStore["ctx.spillStore<br/>Spill storage seam"]
@@ -291,6 +292,12 @@ flowchart LR
   pkg_lsp["lsp"]
   svc_lsp["ctx.lsp<br/>Language-server navigation seam"]
   pkg_tool_lsp["tool-lsp"]
+  pkg_decision["decision"]
+  svc_decision["ctx.decision<br/>Typed decision seam"]
+  pkg_decision_jev["decision-jev"]
+  pkg_decision_laya["decision-laya"]
+  pkg_decision_llm["decision-llm"]
+  pkg_decision_consumers["decision-consumers"]
   pkg_cordis_host_runner["cordis-host-runner"]
   svc_dynamicCordisRunner["ctx.dynamicCordisRunner<br/>Dynamic Cordis package host runner"]
   svc_cordisInspect["ctx.cordisInspect<br/>Dynamic Cordis inspect registry"]
@@ -333,6 +340,10 @@ flowchart LR
   pkg_cordis_host_runner --> svc_dynamicCordisRunner
   pkg_credentials --> svc_credentials
   pkg_credentials_local --> svc_credentials
+  pkg_decision --> svc_decision
+  pkg_decision_jev --> svc_decision
+  pkg_decision_laya --> svc_decision
+  pkg_decision_llm --> svc_decision
   pkg_deepseek_account --> svc_deepseekAccount
   pkg_deepseek_account_platform --> svc_deepseekAccount
   pkg_deepseek_llm_api_extensions --> svc_deepseekLlmApiExtensions
@@ -443,6 +454,7 @@ flowchart LR
   pkg_web_deepseek_api --> svc_web
   pkg_web_fetch_http --> svc_web
   pkg_web_search_deepseek --> svc_web
+  pkg_web_search_duckduckgo --> svc_web
   pkg_web_search_exa --> svc_web
   pkg_web_search_perplexity --> svc_web
   pkg_webhook --> svc_webhookRuntime
@@ -482,6 +494,7 @@ flowchart LR
   svc_credentials --> pkg_api_settings_controller
   svc_credentials --> pkg_llm_deepseek
   svc_credentials --> pkg_llm_pi_ai
+  svc_decision --> pkg_decision_consumers
   svc_deepseekAccount --> pkg_api_account_controller
   svc_deepseekAccount --> pkg_llm_deepseek
   svc_deepseekLlmApiExtensions --> pkg_llm_deepseek
@@ -699,7 +712,7 @@ flowchart LR
 | `ctx.claudeCodeMods` | `core` | [`experimental-claude-code-mods`](../packages/experimental/claude-code-mods) | - | - | - | Loads mods that defineMod plugins add, raises their hook chains from harness extension points, and draws the band above the prompt over its Remote. |
 | `ctx.inspector` | `core` | `inspector` | - | - | - | Owns the Worker-hosted CDP target and the transport-independent Host and Client observation and Cordis-tree query API. |
 | `ctx.jobs` | `seam` | [`jobs`](../packages/jobs/jobs) | [`jobs-local`](../packages/jobs/jobs-local) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh), [`tool-terminal`](../packages/experimental/tool-terminal), [`tool-jobs`](../packages/jobs/tool-jobs), [`api-job-controller`](../packages/api/job-controller) | - | Producers (background bash/pwsh and PTY sends) register running work; record-declaring jobs additionally stream raw output for non-consuming observers; tool-jobs is the model-facing controller that reads, lists, and kills it; jobs-local is the process-local registry. |
-| `ctx.web` | `seam` | [`web`](../packages/web/web) | [`web-search-exa`](../packages/web/web-search-exa), [`web-search-perplexity`](../packages/web/web-search-perplexity), [`web-search-deepseek`](../packages/web/web-search-deepseek), [`web-deepseek-api`](../packages/web/web-deepseek-api), [`web-fetch-http`](../packages/web/web-fetch-http) | [`tool-web`](../packages/web/tool-web) | - | Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names. |
+| `ctx.web` | `seam` | [`web`](../packages/web/web) | [`web-search-exa`](../packages/web/web-search-exa), [`web-search-perplexity`](../packages/web/web-search-perplexity), [`web-search-deepseek`](../packages/web/web-search-deepseek), [`web-deepseek-api`](../packages/web/web-deepseek-api), [`web-search-duckduckgo`](../packages/web/web-search-duckduckgo), [`web-fetch-http`](../packages/web/web-fetch-http) | [`tool-web`](../packages/web/tool-web) | - | Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names. |
 | `ctx.spillStore` | `seam` | [`spill`](../packages/spill/spill) | [`spill-local`](../packages/spill/spill-local) | [`spill-policy`](../packages/spill/spill-policy) | - | The backend saves oversized tool text and returns a model-facing locator plus retrieval hint; spill-policy is the tools/post-execute consumer that decides when to spill. |
 | `ctx.directoryPicker` | `seam` | [`host-directory-picker`](../packages/host/directory-picker) | [`host-directory-picker-native`](../packages/host/directory-picker-native), [`host-directory-picker-browse`](../packages/host/directory-picker-browse) | [`api-workspace-controller`](../packages/api/workspace-controller) | - | Discriminated interaction capability: the native backend opens one OS chooser on the host display, the browse backend serves listing/creation primitives for the in-app browser; dual-face backends fill ui-workspace directory-flow slots from their browser halves (no wire advertisement). |
 | `ctx.webServer` | `core` | [`host-webserver`](../packages/host/webserver) | - | [`client-connection`](../packages/client/connection), [`client-modules`](../packages/client/modules), [`client-hmr`](../packages/client/hmr) | - | Plain node:http carrier: named-route registry, index transform taps, and the static dist fallback; web-transport plugins register their own routes. |
@@ -708,6 +721,7 @@ flowchart LR
 | `ctx.workflowEngine` | `seam` | [`workflow`](../packages/workflow/workflow) | [`workflow-ptc`](../packages/workflow/workflow-ptc) | [`tool-workflow`](../packages/workflow/tool-workflow), [`tool-ralph`](../packages/experimental/tool-ralph) | - | One engine per context, as in bash, with no named-provider registry; the general workflow and fixed Ralph consumers start runs whose agent() calls fan out through ctx.subagents. |
 | `ctx.webhookRuntime` | `core` | [`webhook`](../packages/experimental/webhook) | - | [`webhook-github`](../packages/experimental/webhook-github) | - | Provider adapters dispatch authenticated deliveries; trusted plugins register independent process-local rules, and the runtime turns non-null results into ordinary Workspace-backed Sessions without delivery or completion state. |
 | `ctx.lsp` | `seam` | [`lsp`](../packages/lsp/lsp) | [`lsp-stdio`](../packages/lsp/lsp-stdio) | [`tool-lsp`](../packages/lsp/tool-lsp) | - | Provider registration and selection plus normalized query execution over exactly four operations; the seam offers no protocol escape hatch, so a backend translates into the normalized request and result. |
+| `ctx.decision` | `seam` | [`decision`](../packages/decision/decision) | [`decision-jev`](../packages/decision/decision-jev), [`decision-laya`](../packages/decision/decision-laya), [`decision-llm`](../packages/decision/decision-llm) | [`decision-consumers`](../packages/decision/decision-consumers) | - | One provider registry and one provider-selecting `evaluate` call answering a closed union of choice, score, and boolean questions in a single round trip; consumers gate on the returned calibrated probabilities, and one consumer may hot-swap the active model route after a failed request. |
 | `ctx.dynamicCordisRunner` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | Owns the in-memory definition registry, the vm sandbox for host halves, and the request-run round trip; browser pages reach the same service over the wire through its remote namespace. |
 | `ctx.cordisInspect` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | Registers host inspect providers, mirrors the client provider manifest, and routes client queries through the dynamic Cordis transport. |
 

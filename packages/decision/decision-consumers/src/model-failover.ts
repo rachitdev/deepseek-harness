@@ -73,6 +73,11 @@ const DEFAULT_TRIGGER_CODES = Object.freeze([
   'PI_AI_ERROR',
   // Catalog miss. Not a malformed body; the route cannot be served.
   'MODEL_UNAVAILABLE',
+  // Configured/resolved route cannot be dispatched by the provider or adapter.
+  'UNKNOWN_MODEL',
+  'MODEL_UNSUPPORTED',
+  // Reasoning effort option rejected before streaming.
+  'UNSUPPORTED_REASONING_EFFORT',
 ])
 
 /**
@@ -201,6 +206,23 @@ function tokenCount(usage: TokenUsage | undefined): number {
       + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
 }
 
+/** Health evidence for a route that streamed reasoning or tool calls but no text within the probe budget. */
+const REASONING_ONLY_PROBE_OUTPUT = '[route is live: streamed reasoning or tool calls; no text within the probe budget]'
+
+function liveWithoutText(
+  route: FailoverModelRoute,
+  started: number,
+  usage: TokenUsage | undefined,
+): FailoverCandidateProbe {
+  return {
+    provider: route.provider,
+    model: route.model,
+    latencyMs: Math.round(performance.now() - started),
+    tokenCount: tokenCount(usage),
+    probeOutput: REASONING_ONLY_PROBE_OUTPUT,
+  }
+}
+
 async function probeCandidate(
   ctx: Context,
   route: FailoverModelRoute,
@@ -215,6 +237,10 @@ async function probeCandidate(
   ])
   let output = ''
   let usage: TokenUsage | undefined
+  // A reasoning model spends a tiny probe budget thinking, and some gateways then
+  // close that capped stream without a terminal marker. Reasoning or tool-call
+  // deltas still prove the route is serving this task, so they count as liveness.
+  let streamed = false
   try {
     for await (const chunk of ctx.llm.stream({
       provider: route.provider,
@@ -230,10 +256,15 @@ async function probeCandidate(
     })) {
       if (chunk.type === 'text-delta' && output.length < config.maxProbeOutputChars) {
         output += chunk.text.slice(0, config.maxProbeOutputChars - output.length)
+      } else if (chunk.type === 'reasoning-delta' || chunk.type === 'tool-call-delta') {
+        streamed = true
       } else if (chunk.type === 'usage') {
         usage = chunk.usage
       } else if (chunk.type === 'finish'
         && (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')) {
+        if (output.length === 0 && streamed && chunk.reason.kind === 'error') {
+          return liveWithoutText(route, started, usage)
+        }
         return {
           provider: route.provider,
           model: route.model,
@@ -245,6 +276,10 @@ async function probeCandidate(
       }
     }
   } catch (error: unknown) {
+    // Only the probe's own deadline may count as liveness; a caller abort never does.
+    if (output.length === 0 && streamed && !signal.aborted) {
+      return liveWithoutText(route, started, usage)
+    }
     return {
       provider: route.provider,
       model: route.model,
@@ -255,6 +290,7 @@ async function probeCandidate(
     }
   }
   const trimmed = output.trim()
+  if (trimmed.length === 0 && streamed) return liveWithoutText(route, started, usage)
   return {
     provider: route.provider,
     model: route.model,
@@ -273,8 +309,12 @@ function firstHealthyRoute(
     probes.some(probe =>
       probe.provider === route.provider
       && probe.model === route.model
-      && probe.error === undefined
-      && probe.probeOutput.length > 0))
+      && isHealthyProbe(probe)))
+}
+
+/** A probe proves a route healthy when it finished without error and produced evidence to judge. */
+function isHealthyProbe(probe: FailoverCandidateProbe): boolean {
+  return probe.error === undefined && probe.probeOutput.length > 0
 }
 
 function switchedConfig(config: LlmCallConfig, route: FailoverModelRoute): LlmCallConfig {
@@ -320,15 +360,28 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
     return next
   }
 
+  /**
+   * Probe `routes` in ranked windows of `maxCandidates` and stop at the first window holding a
+   * healthy route. A tier longer than one window (for example a large allowedModels union) is
+   * walked in full, so a single cooling provider family at the head cannot hide every live
+   * route behind it. Probes of every walked window are returned for diagnostics.
+   */
   async function probeTier(
     routes: readonly FailoverModelRoute[],
     task: string,
     signal: AbortSignal,
   ): Promise<{ candidates: FailoverModelRoute[]; probes: FailoverCandidateProbe[] }> {
-    const candidates = routes.slice(0, config.maxCandidates)
-    const probes = await Promise.all(
-      candidates.map(route => probeCandidate(ctx, route, task, config, signal)),
-    )
+    const candidates: FailoverModelRoute[] = []
+    const probes: FailoverCandidateProbe[] = []
+    for (let offset = 0; offset < routes.length && !signal.aborted; offset += config.maxCandidates) {
+      const window = routes.slice(offset, offset + config.maxCandidates)
+      const results = await Promise.all(
+        window.map(route => probeCandidate(ctx, route, task, config, signal)),
+      )
+      candidates.push(...window)
+      probes.push(...results)
+      if (results.some(isHealthyProbe)) break
+    }
     return { candidates, probes }
   }
 
@@ -339,11 +392,13 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
     signal: AbortSignal,
   ): Promise<{ candidates: FailoverModelRoute[]; probes: FailoverCandidateProbe[] }> {
     const first = await probeTier(primary, task, signal)
-    const hasHealthyPrimary = first.probes.some(
-      probe => probe.error === undefined && probe.probeOutput.length > 0,
-    )
-    if (hasHealthyPrimary || signal.aborted) return first
-    return probeTier(fallback, task, signal)
+    if (first.probes.some(isHealthyProbe) || signal.aborted) return first
+    const floor = await probeTier(fallback, task, signal)
+    // Keep primary probe failures alongside the floor for arbitration diagnostics.
+    return {
+      candidates: [...first.candidates, ...floor.candidates],
+      probes: [...first.probes, ...floor.probes],
+    }
   }
 
   async function raceCandidatesAtStart(
@@ -360,7 +415,7 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
     )
     if (fusedSignal.aborted) return undefined
 
-    const healthy = probes.filter(p => p.error === undefined && p.probeOutput.length > 0)
+    const healthy = probes.filter(isHealthyProbe)
     if (healthy.length === 0) return undefined
     if (healthy.length === 1) {
       const [single] = healthy
@@ -395,8 +450,13 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
     return fallback
   }
 
-  const disposeRequest = ctx.on('agent/request', async ({ agent, signal }, next) => {
-    let route = states.get(agent)?.activeRoute ?? sessionRoutes.get(agent)
+  const configuredRoutes = new WeakMap<Agent, Pick<FailoverModelRoute, 'provider' | 'model'>>()
+  const disposeRequest = ctx.on('agent/request', async ({ agent, turn, step, signal }, next) => {
+    const state = states.get(agent)
+    const inTurnRoute = state !== undefined && state.turn === turn && state.step === step
+      ? state.activeRoute
+      : undefined
+    let route = inTurnRoute ?? sessionRoutes.get(agent)
     if (route === undefined && config.raceOnStart && !signal.aborted && !lifetime.signal.aborted) {
       let pendingRace = startRaces.get(agent)
       if (pendingRace === undefined) {
@@ -421,7 +481,30 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
       }
     }
     const proposed = await next()
-    return route === undefined ? proposed : switchedConfig(proposed, route)
+    if (!configuredRoutes.has(agent) && proposed.provider !== undefined && proposed.model !== undefined) {
+      configuredRoutes.set(agent, { provider: proposed.provider, model: proposed.model })
+    }
+    const configured = configuredRoutes.get(agent)
+    const persisted = agent.session.requestHeader()?.config
+    // The loop seed is either the original route or the last logged header.
+    // Only a proposal that matches neither is an explicit listener switch.
+    const explicitSwitch = configured !== undefined
+      && (proposed.provider !== configured.provider || proposed.model !== configured.model)
+      && (persisted === undefined
+        || proposed.provider !== persisted.provider
+        || proposed.model !== persisted.model)
+    if (explicitSwitch) {
+      const adopted = { provider: proposed.provider, model: proposed.model }
+      if (sessionRoutes.has(agent) || inTurnRoute !== undefined) sessionRoutes.set(agent, adopted)
+      if (state?.activeRoute !== undefined && state.turn === turn && state.step === step) delete state.activeRoute
+      return proposed
+    }
+    if (route !== undefined) return switchedConfig(proposed, route)
+    if (configured !== undefined
+      && (proposed.provider !== configured.provider || proposed.model !== configured.model)) {
+      return switchedConfig(proposed, configured)
+    }
+    return proposed
   })
 
   async function recover(
@@ -433,16 +516,18 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
       return next()
     }
     const header = agent.session.requestHeader()
-    if (header === undefined || header.config.provider !== provider) {
+    const failedModel = payload.model ?? header?.config.model
+    // A prepare-time failure has a payload model but no request header yet.
+    if (failedModel === undefined || (header !== undefined && header.config.provider !== provider)) {
       ctx.logger.warn(
         `model failover: skipped ${failure.code} on ${provider} `
-        + `(header=${header === undefined ? 'missing' : `${header.config.provider}/${header.config.model}`})`,
+        + `(header=${header === undefined ? 'missing' : `${header.config.provider}/${header.config.model}`}, model=${failedModel ?? 'missing'})`,
       )
       return next()
     }
 
     const state = stateFor(agent, turn, step)
-    state.failedRoutes.add(routeKey({ provider, model: header.config.model }))
+    state.failedRoutes.add(routeKey({ provider, model: failedModel }))
     // One probe and decision round covers every repeat failure of the same route set, so generic
     // same-route retries do not each pay for a fresh canary fan-out. A newly failed takeover route
     // changes the set and earns its own arbitration.
@@ -466,13 +551,13 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
       let decision
       try {
         decision = await arbitrateModelFailover(ctx.decision, {
-          failedModel: header.config.model,
+          failedModel,
           failureReason: `${failure.code}: ${failure.message}`,
           currentTask: task,
           candidateProbes: probes,
         }, fusedSignal)
       } catch (error: unknown) {
-        // JEV/Laya outage must not pin the turn to a cooling or 429 route.
+        // Judge outage must not pin the turn to a cooling or 429 route.
         // A live canary already proved a replacement; take the first healthy
         // probe in candidate order instead of same-route backoff.
         const fallback = firstHealthyRoute(probes, candidates)
@@ -481,9 +566,8 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
           return next()
         }
         state.activeRoute = fallback
-        sessionRoutes.set(agent, fallback)
         ctx.logger.warn(
-          `model failover: ${provider}/${header.config.model} -> ${fallback.provider}/${fallback.model} `
+          `model failover: ${provider}/${failedModel} -> ${fallback.provider}/${fallback.model} `
           + '(judge-unavailable, first-healthy-probe; %o)',
           error,
         )
@@ -498,18 +582,16 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
         const fallback = selected === undefined ? firstHealthyRoute(probes, candidates) : undefined
         if (fallback === undefined) return next()
         state.activeRoute = fallback
-        sessionRoutes.set(agent, fallback)
         ctx.logger.warn(
-          `model failover: ${provider}/${header.config.model} -> ${fallback.provider}/${fallback.model} `
+          `model failover: ${provider}/${failedModel} -> ${fallback.provider}/${fallback.model} `
           + '(judge named no candidate, first-healthy-probe)',
         )
         return { kind: 'retry' }
       }
 
       state.activeRoute = selected
-      sessionRoutes.set(agent, selected)
       ctx.logger.info(
-        `model failover: ${provider}/${header.config.model} -> ${selected.provider}/${selected.model} `
+        `model failover: ${provider}/${failedModel} -> ${selected.provider}/${selected.model} `
         + `(judge=${decision.providerId}, confidence=${decision.confidence.toFixed(3)})`,
       )
       return { kind: 'retry' }
@@ -534,6 +616,7 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
   const disposeAgent = ctx.on('agent/disposed', ({ agent }) => {
     states.delete(agent)
     sessionRoutes.delete(agent)
+    configuredRoutes.delete(agent)
     startRaces.delete(agent)
   })
 
