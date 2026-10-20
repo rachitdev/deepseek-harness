@@ -29,23 +29,10 @@ export interface FailoverModelRoute {
 export interface ModelFailoverConfig {
   /** Whether request-error recovery may switch models. */
   readonly enabled?: boolean
-  /** Ranked primary routes probed together during start racing and failure recovery. */
+  /** Configured fallback routes, used when no enabled allowed-model setting is available. */
   readonly candidates?: FailoverModelRoute[]
-  /**
-   * Lower-tier routes probed only if every eligible primary candidate fails. JEV can select among
-   * these survivors, but a healthy primary can never lose to a floor route.
-   */
-  readonly fallbackCandidates?: FailoverModelRoute[]
   /** Union the live `subagent-model-selection.allowedModels` list with `candidates` when that setting is enabled. */
   readonly useAllowedModels?: boolean
-  /**
-   * Probe every candidate route in parallel before the very first LLM call of a new agent and
-   * adopt whichever healthy responder JEV ranks best, instead of always starting on `candidates[0]`.
-   * The winner stays active for the rest of the session (cleared only by a fresh in-turn failure,
-   * which still recovers through the existing per-turn `recover` path below). Off by default: it
-   * adds one full probe-and-arbitrate round trip to the first message of every session.
-   */
-  readonly raceOnStart?: boolean
   /**
    * Failure codes that start probing. Unclassified provider errors (`PI_AI_ERROR`)
    * are included by default so a dead route is not retried in place.
@@ -71,8 +58,6 @@ const DEFAULT_TRIGGER_CODES = Object.freeze([
   'TRANSPORT',
   'AUTH',
   'PI_AI_ERROR',
-  // Catalog miss. Not a malformed body; the route cannot be served.
-  'MODEL_UNAVAILABLE',
 ])
 
 /**
@@ -93,13 +78,7 @@ export const ModelFailoverConfig: z<ModelFailoverConfig> = z.object({
     model: z.string().min(1).required(),
     reasoningEffort: z.string().min(1),
   })).default([]),
-  fallbackCandidates: z.array(z.object({
-    provider: z.string().min(1).required(),
-    model: z.string().min(1).required(),
-    reasoningEffort: z.string().min(1),
-  })).default([]),
   useAllowedModels: z.boolean().default(true),
-  raceOnStart: z.boolean().default(false),
   triggerCodes: z.array(z.string().min(1)).default([...DEFAULT_TRIGGER_CODES]),
   maxCandidates: z.number().step(1).min(1).default(4),
   probeTimeoutMs: z.number().step(1).min(1).default(8_000),
@@ -110,9 +89,7 @@ export const ModelFailoverConfig: z<ModelFailoverConfig> = z.object({
 
 interface ResolvedModelFailoverConfig {
   readonly candidates: readonly FailoverModelRoute[]
-  readonly fallbackCandidates: readonly FailoverModelRoute[]
   readonly useAllowedModels: boolean
-  readonly raceOnStart: boolean
   readonly triggerCodes: ReadonlySet<string>
   readonly maxCandidates: number
   readonly probeTimeoutMs: number
@@ -135,9 +112,7 @@ interface AgentFailoverState {
 function resolveConfig(config: ModelFailoverConfig): ResolvedModelFailoverConfig {
   return {
     candidates: config.candidates ?? [],
-    fallbackCandidates: config.fallbackCandidates ?? [],
     useAllowedModels: config.useAllowedModels ?? true,
-    raceOnStart: config.raceOnStart ?? false,
     triggerCodes: new Set(config.triggerCodes ?? DEFAULT_TRIGGER_CODES),
     maxCandidates: config.maxCandidates ?? 4,
     probeTimeoutMs: config.probeTimeoutMs ?? 8_000,
@@ -163,7 +138,7 @@ function deduplicateRoutes(routes: readonly FailoverModelRoute[]): FailoverModel
   return unique
 }
 
-function availablePrimaryRoutes(ctx: Context, config: ResolvedModelFailoverConfig): FailoverModelRoute[] {
+function availableRoutes(ctx: Context, config: ResolvedModelFailoverConfig): FailoverModelRoute[] {
   const configured = config.candidates
   if (config.useAllowedModels) {
     const setting = ctx.get('subagentModelSelection')?.current()
@@ -172,11 +147,6 @@ function availablePrimaryRoutes(ctx: Context, config: ResolvedModelFailoverConfi
     }
   }
   return deduplicateRoutes(configured)
-}
-
-function availableFallbackRoutes(config: ResolvedModelFailoverConfig): FailoverModelRoute[] {
-  const primaryKeys = new Set(config.candidates.map(routeKey))
-  return deduplicateRoutes(config.fallbackCandidates).filter(route => !primaryKeys.has(routeKey(route)))
 }
 
 function latestUserTask(agent: Agent, maxChars: number): string {
@@ -299,17 +269,12 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
   if (policy.candidates === undefined || policy.candidates.length === 0) {
     throw new Error('enabled model failover requires at least one fallback candidate route')
   }
-  const allConfigured = [...policy.candidates, ...(policy.fallbackCandidates ?? [])]
-  if (deduplicateRoutes(allConfigured).length !== allConfigured.length) {
-    throw new Error('model failover primary and fallback routes must be unique provider/model pairs')
+  if (deduplicateRoutes(policy.candidates).length !== policy.candidates.length) {
+    throw new Error('model failover candidate routes must be unique provider/model pairs')
   }
   const config = resolveConfig(policy)
   const lifetime = new AbortController()
   const states = new WeakMap<Agent, AgentFailoverState>()
-  /** Route selected by the session-start race or a later failover; sticky until agent disposal. */
-  const sessionRoutes = new WeakMap<Agent, FailoverModelRoute>()
-  /** Coalesce concurrent first requests so one agent pays for only one start race. */
-  const startRaces = new WeakMap<Agent, Promise<FailoverModelRoute | undefined>>()
   const active = new Set<Promise<RequestErrorAction>>()
 
   function stateFor(agent: Agent, turn: number, step: number): AgentFailoverState {
@@ -320,107 +285,9 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
     return next
   }
 
-  async function probeTier(
-    routes: readonly FailoverModelRoute[],
-    task: string,
-    signal: AbortSignal,
-  ): Promise<{ candidates: FailoverModelRoute[]; probes: FailoverCandidateProbe[] }> {
-    const candidates = routes.slice(0, config.maxCandidates)
-    const probes = await Promise.all(
-      candidates.map(route => probeCandidate(ctx, route, task, config, signal)),
-    )
-    return { candidates, probes }
-  }
-
-  async function probePrimaryThenFallback(
-    primary: readonly FailoverModelRoute[],
-    fallback: readonly FailoverModelRoute[],
-    task: string,
-    signal: AbortSignal,
-  ): Promise<{ candidates: FailoverModelRoute[]; probes: FailoverCandidateProbe[] }> {
-    const first = await probeTier(primary, task, signal)
-    const hasHealthyPrimary = first.probes.some(
-      probe => probe.error === undefined && probe.probeOutput.length > 0,
-    )
-    if (hasHealthyPrimary || signal.aborted) return first
-    return probeTier(fallback, task, signal)
-  }
-
-  async function raceCandidatesAtStart(
-    agent: Agent,
-    signal: AbortSignal,
-  ): Promise<FailoverModelRoute | undefined> {
-    const fusedSignal = AbortSignal.any([signal, lifetime.signal])
-    const task = latestUserTask(agent, config.maxTaskChars)
-    const { candidates, probes } = await probePrimaryThenFallback(
-      availablePrimaryRoutes(ctx, config),
-      availableFallbackRoutes(config),
-      task,
-      fusedSignal,
-    )
-    if (fusedSignal.aborted) return undefined
-
-    const healthy = probes.filter(p => p.error === undefined && p.probeOutput.length > 0)
-    if (healthy.length === 0) return undefined
-    if (healthy.length === 1) {
-      const [single] = healthy
-      if (single === undefined) return undefined
-      return candidates.find(c => c.provider === single.provider && c.model === single.model)
-    }
-
-    try {
-      const decision = await arbitrateModelFailover(ctx.decision, {
-        failedModel: 'session-start-race',
-        failureReason: 'SESSION_START_PARALLEL_RACE',
-        currentTask: task,
-        candidateProbes: probes,
-      }, fusedSignal)
-      const winner = candidates.find(
-        r => r.provider === decision.recommendedProvider && r.model === decision.recommendedModel,
-      )
-      if (winner !== undefined && decision.codeValidityScore >= MIN_TAKEOVER_VALIDITY) {
-        ctx.logger.info(
-          `model race on start: winner ${winner.provider}/${winner.model} `
-          + `(judge=${decision.providerId}, confidence=${decision.confidence.toFixed(3)})`,
-        )
-        return winner
-      }
-    } catch (err: unknown) {
-      ctx.logger.warn('model race on start: arbitration error; using first healthy probe: %o', err)
-    }
-    const fallback = firstHealthyRoute(probes, candidates)
-    if (fallback !== undefined) {
-      ctx.logger.info(`model race on start: winner ${fallback.provider}/${fallback.model} (first healthy probe)`)
-    }
-    return fallback
-  }
-
-  const disposeRequest = ctx.on('agent/request', async ({ agent, signal }, next) => {
-    let route = states.get(agent)?.activeRoute ?? sessionRoutes.get(agent)
-    if (route === undefined && config.raceOnStart && !signal.aborted && !lifetime.signal.aborted) {
-      let pendingRace = startRaces.get(agent)
-      if (pendingRace === undefined) {
-        pendingRace = raceCandidatesAtStart(agent, signal)
-        startRaces.set(agent, pendingRace)
-      }
-      try {
-        const winner = await pendingRace
-        if (winner !== undefined) {
-          sessionRoutes.set(agent, winner)
-          route = winner
-        } else if (startRaces.get(agent) === pendingRace) {
-          // No candidate survived (or the request that started the race was
-          // itself aborted, e.g. an interrupted first turn). Drop the cached
-          // race so the next request gets its own fresh attempt instead of
-          // silently running unraced for the rest of the session.
-          startRaces.delete(agent)
-        }
-      } catch (err: unknown) {
-        if (startRaces.get(agent) === pendingRace) startRaces.delete(agent)
-        ctx.logger.warn('model race on start failed: %o', err)
-      }
-    }
+  const disposeRequest = ctx.on('agent/request', async ({ agent }, next) => {
     const proposed = await next()
+    const route = states.get(agent)?.activeRoute
     return route === undefined ? proposed : switchedConfig(proposed, route)
   })
 
@@ -454,14 +321,15 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
       // `AbortSignal.aborted` is readonly, so TypeScript carries the `false` narrowing from one
       // check across the awaits below; reading it through a call observes a mid-flight abort.
       const cancelled = (): boolean => fusedSignal.aborted
-      const primary = availablePrimaryRoutes(ctx, config)
+      const candidates = availableRoutes(ctx, config)
         .filter(route => !state.failedRoutes.has(routeKey(route)))
-      const task = latestUserTask(agent, config.maxTaskChars)
-      const fallback = availableFallbackRoutes(config)
-        .filter(route => !state.failedRoutes.has(routeKey(route)))
-      const { candidates, probes } = await probePrimaryThenFallback(primary, fallback, task, fusedSignal)
-      if (cancelled()) return
+        .slice(0, config.maxCandidates)
       if (candidates.length === 0) return next()
+
+      const task = latestUserTask(agent, config.maxTaskChars)
+      const probes = await Promise.all(candidates.map(route =>
+        probeCandidate(ctx, route, task, config, fusedSignal)))
+      if (cancelled()) return
 
       let decision
       try {
@@ -481,7 +349,6 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
           return next()
         }
         state.activeRoute = fallback
-        sessionRoutes.set(agent, fallback)
         ctx.logger.warn(
           `model failover: ${provider}/${header.config.model} -> ${fallback.provider}/${fallback.model} `
           + '(judge-unavailable, first-healthy-probe; %o)',
@@ -493,21 +360,10 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
       const selected = candidates.find(route =>
         route.provider === decision.recommendedProvider && route.model === decision.recommendedModel)
       if (selected === undefined || decision.codeValidityScore < MIN_TAKEOVER_VALIDITY) {
-        // A judge that names no candidate must not close the turn while a probe
-        // already returned text. An explicit broken-code verdict still refuses.
-        const fallback = selected === undefined ? firstHealthyRoute(probes, candidates) : undefined
-        if (fallback === undefined) return next()
-        state.activeRoute = fallback
-        sessionRoutes.set(agent, fallback)
-        ctx.logger.warn(
-          `model failover: ${provider}/${header.config.model} -> ${fallback.provider}/${fallback.model} `
-          + '(judge named no candidate, first-healthy-probe)',
-        )
-        return { kind: 'retry' }
+        return next()
       }
 
       state.activeRoute = selected
-      sessionRoutes.set(agent, selected)
       ctx.logger.info(
         `model failover: ${provider}/${header.config.model} -> ${selected.provider}/${selected.model} `
         + `(judge=${decision.providerId}, confidence=${decision.confidence.toFixed(3)})`,
@@ -531,11 +387,7 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
     const agent = ctx.get('agents')?.get(session.id)
     if (agent?.session === session) states.delete(agent)
   })
-  const disposeAgent = ctx.on('agent/disposed', ({ agent }) => {
-    states.delete(agent)
-    sessionRoutes.delete(agent)
-    startRaces.delete(agent)
-  })
+  const disposeAgent = ctx.on('agent/disposed', ({ agent }) => { states.delete(agent) })
 
   ctx.effect(() => async () => {
     disposeRequest()

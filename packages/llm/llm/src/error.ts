@@ -31,13 +31,6 @@ export const QUOTA_EXCEEDED_CODE = 'QUOTA'
 export const ACCOUNT_QUOTA_EXCEEDED_CODE = 'ACCOUNT_QUOTA'
 
 /**
- * Canonical provider-neutral code for a model id the gateway catalog will not
- * dispatch. Distinct from {@link INVALID_REQUEST}: the body is fine, the route
- * is dead, and recovery may switch models. A malformed body stays invalid.
- */
-export const MODEL_UNAVAILABLE_CODE = 'MODEL_UNAVAILABLE'
-
-/**
  * Canonical provider-neutral code for a response that completed normally but
  * carried no content blocks at all. Providers occasionally emit a degenerate
  * completion (a terminal stop with zero output); adapters classify it as this
