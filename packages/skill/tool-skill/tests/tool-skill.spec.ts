@@ -1395,17 +1395,6 @@ describe('pinned system-prompt injection', () => {
     expect(rendered).toContain('Route every open-ended ask through the intake gate.')
   })
 
-  it('pins a skill once when two tool-skill instances serve the same agent', async () => {
-    const { ctx, agent } = await pinHarness()
-    // A preset row and a profile row both mount the plugin, each hooking the same assembly; the
-    // second instance lives in an isolated tool scope, as an agent-preset composition does.
-    const nested = ctx.isolate('tools')
-    await nested.plugin(ToolRuntime)
-    await nested.plugin(toolSkill, {})
-    const assembly = await ctx.systemPrompt.assemble({ agent, scope: agent })
-    expect(assembly.sections.filter(entry => entry.name === `skill:pinned:${PINNED}`)).toHaveLength(1)
-  })
-
   it('resolves pinned bodies with the agent cwd, so a project copy wins', async () => {
     const { ctx } = await pinHarness()
     const project = await tempDir('pinned-project')

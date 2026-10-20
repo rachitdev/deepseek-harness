@@ -201,23 +201,6 @@ function tokenCount(usage: TokenUsage | undefined): number {
       + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
 }
 
-/** Health evidence for a route that streamed reasoning or tool calls but no text within the probe budget. */
-const REASONING_ONLY_PROBE_OUTPUT = '[route is live: streamed reasoning or tool calls; no text within the probe budget]'
-
-function liveWithoutText(
-  route: FailoverModelRoute,
-  started: number,
-  usage: TokenUsage | undefined,
-): FailoverCandidateProbe {
-  return {
-    provider: route.provider,
-    model: route.model,
-    latencyMs: Math.round(performance.now() - started),
-    tokenCount: tokenCount(usage),
-    probeOutput: REASONING_ONLY_PROBE_OUTPUT,
-  }
-}
-
 async function probeCandidate(
   ctx: Context,
   route: FailoverModelRoute,
@@ -232,10 +215,6 @@ async function probeCandidate(
   ])
   let output = ''
   let usage: TokenUsage | undefined
-  // A reasoning model spends a tiny probe budget thinking, and some gateways then
-  // close that capped stream without a terminal marker. Reasoning or tool-call
-  // deltas still prove the route is serving this task, so they count as liveness.
-  let streamed = false
   try {
     for await (const chunk of ctx.llm.stream({
       provider: route.provider,
@@ -251,15 +230,10 @@ async function probeCandidate(
     })) {
       if (chunk.type === 'text-delta' && output.length < config.maxProbeOutputChars) {
         output += chunk.text.slice(0, config.maxProbeOutputChars - output.length)
-      } else if (chunk.type === 'reasoning-delta' || chunk.type === 'tool-call-delta') {
-        streamed = true
       } else if (chunk.type === 'usage') {
         usage = chunk.usage
       } else if (chunk.type === 'finish'
         && (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')) {
-        if (output.length === 0 && streamed && chunk.reason.kind === 'error') {
-          return liveWithoutText(route, started, usage)
-        }
         return {
           provider: route.provider,
           model: route.model,
@@ -271,10 +245,6 @@ async function probeCandidate(
       }
     }
   } catch (error: unknown) {
-    // Only the probe's own deadline may count as liveness; a caller abort never does.
-    if (output.length === 0 && streamed && !signal.aborted) {
-      return liveWithoutText(route, started, usage)
-    }
     return {
       provider: route.provider,
       model: route.model,
@@ -285,7 +255,6 @@ async function probeCandidate(
     }
   }
   const trimmed = output.trim()
-  if (trimmed.length === 0 && streamed) return liveWithoutText(route, started, usage)
   return {
     provider: route.provider,
     model: route.model,
@@ -304,12 +273,8 @@ function firstHealthyRoute(
     probes.some(probe =>
       probe.provider === route.provider
       && probe.model === route.model
-      && isHealthyProbe(probe)))
-}
-
-/** A probe proves a route healthy when it finished without error and produced evidence to judge. */
-function isHealthyProbe(probe: FailoverCandidateProbe): boolean {
-  return probe.error === undefined && probe.probeOutput.length > 0
+      && probe.error === undefined
+      && probe.probeOutput.length > 0))
 }
 
 function switchedConfig(config: LlmCallConfig, route: FailoverModelRoute): LlmCallConfig {
@@ -355,28 +320,15 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
     return next
   }
 
-  /**
-   * Probe `routes` in ranked windows of `maxCandidates` and stop at the first window holding a
-   * healthy route. A tier longer than one window (for example a large allowedModels union) is
-   * walked in full, so a single cooling provider family at the head cannot hide every live
-   * route behind it. Probes of every walked window are returned for diagnostics.
-   */
   async function probeTier(
     routes: readonly FailoverModelRoute[],
     task: string,
     signal: AbortSignal,
   ): Promise<{ candidates: FailoverModelRoute[]; probes: FailoverCandidateProbe[] }> {
-    const candidates: FailoverModelRoute[] = []
-    const probes: FailoverCandidateProbe[] = []
-    for (let offset = 0; offset < routes.length && !signal.aborted; offset += config.maxCandidates) {
-      const window = routes.slice(offset, offset + config.maxCandidates)
-      const results = await Promise.all(
-        window.map(route => probeCandidate(ctx, route, task, config, signal)),
-      )
-      candidates.push(...window)
-      probes.push(...results)
-      if (results.some(isHealthyProbe)) break
-    }
+    const candidates = routes.slice(0, config.maxCandidates)
+    const probes = await Promise.all(
+      candidates.map(route => probeCandidate(ctx, route, task, config, signal)),
+    )
     return { candidates, probes }
   }
 
@@ -387,13 +339,11 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
     signal: AbortSignal,
   ): Promise<{ candidates: FailoverModelRoute[]; probes: FailoverCandidateProbe[] }> {
     const first = await probeTier(primary, task, signal)
-    if (first.probes.some(isHealthyProbe) || signal.aborted) return first
-    const floor = await probeTier(fallback, task, signal)
-    // Keep primary probe failures alongside the floor for arbitration diagnostics.
-    return {
-      candidates: [...first.candidates, ...floor.candidates],
-      probes: [...first.probes, ...floor.probes],
-    }
+    const hasHealthyPrimary = first.probes.some(
+      probe => probe.error === undefined && probe.probeOutput.length > 0,
+    )
+    if (hasHealthyPrimary || signal.aborted) return first
+    return probeTier(fallback, task, signal)
   }
 
   async function raceCandidatesAtStart(
@@ -410,7 +360,7 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
     )
     if (fusedSignal.aborted) return undefined
 
-    const healthy = probes.filter(isHealthyProbe)
+    const healthy = probes.filter(p => p.error === undefined && p.probeOutput.length > 0)
     if (healthy.length === 0) return undefined
     if (healthy.length === 1) {
       const [single] = healthy

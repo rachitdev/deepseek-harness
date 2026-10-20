@@ -28,12 +28,6 @@ export const JEV_EVALUATION_PATH = '/v1/systemone'
 /** Default direct TypeSafe model id for Jev. */
 export const JEV_DEFAULT_MODEL = 'jev-latest'
 
-/**
- * Default ceiling on one awaited Jev call. Jev answers in well under a second, so a call still
- * pending after this long is treated as failed and the configured fallback provider takes over.
- */
-export const JEV_DEFAULT_TIMEOUT_MS = 3_000
-
 /** Attribution header sent on every request. Bump with the package version. */
 const USER_AGENT = 'deepseek-harness/0.0.1'
 
@@ -47,8 +41,6 @@ export interface JevDecisionProviderOptions {
   baseURL: string
   /** Direct TypeSafe model id. */
   model: string
-  /** Ceiling on one call, in milliseconds; defaults to {@link JEV_DEFAULT_TIMEOUT_MS}. */
-  timeoutMs?: number
 }
 
 /**
@@ -129,15 +121,6 @@ export class JevDecisionProvider implements DecisionProvider {
       Object.entries(request.questions).map(([key, question]) => [key, toJevQuestion(question)]),
     )
 
-    // The deadline covers the body read as well as the request: a stalled stream is as slow as a
-    // stalled connection. Expiry is a provider failure, not a caller abort, so the fallback runs.
-    const timeoutMs = this.options.timeoutMs ?? JEV_DEFAULT_TIMEOUT_MS
-    const deadline = AbortSignal.timeout(timeoutMs)
-    const combined = signal !== undefined ? AbortSignal.any([signal, deadline]) : deadline
-    const abortError = (error: unknown): DecisionError => signal?.aborted === true || !deadline.aborted
-      ? new DecisionError('Jev evaluation aborted', 'DECISION_ABORTED', { cause: error })
-      : new DecisionError(`Jev did not answer within ${String(timeoutMs)} ms`, 'DECISION_PROVIDER_ERROR', { cause: error })
-
     let response: Response
     try {
       response = await fetch(`${this.options.baseURL}${JEV_EVALUATION_PATH}`, {
@@ -150,10 +133,10 @@ export class JevDecisionProvider implements DecisionProvider {
           'user-agent': USER_AGENT,
         },
         body: JSON.stringify({ model: this.options.model, state: request.state, questions }),
-        signal: combined,
+        ...signal !== undefined ? { signal } : {},
       })
     } catch (error: unknown) {
-      if (isAbortError(error)) throw abortError(error)
+      if (isAbortError(error)) throw new DecisionError('Jev evaluation aborted', 'DECISION_ABORTED', { cause: error })
       throw new DecisionError(`Jev evaluation request failed: ${String(error)}`, 'DECISION_PROVIDER_ERROR', { cause: error })
     }
 
@@ -166,7 +149,7 @@ export class JevDecisionProvider implements DecisionProvider {
         if (detail !== undefined && detail.length > 0) message = detail
       } catch (error: unknown) {
         // An abort mid-body must surface as DECISION_ABORTED: cancellation is not a provider error.
-        if (isAbortError(error)) throw abortError(error)
+        if (isAbortError(error)) throw new DecisionError('Jev evaluation aborted', 'DECISION_ABORTED', { cause: error })
         // Otherwise the HTTP status already sits in `message`; a non-JSON error body can only cost
         // a richer message, never the real error.
       }
@@ -191,7 +174,7 @@ export class JevDecisionProvider implements DecisionProvider {
     try {
       payload = await response.json() as JevResponse
     } catch (error: unknown) {
-      if (isAbortError(error)) throw abortError(error)
+      if (isAbortError(error)) throw new DecisionError('Jev evaluation aborted', 'DECISION_ABORTED', { cause: error })
       throw new DecisionError(
         `Jev returned an unprocessable response body: ${String(error)}`,
         'DECISION_PROVIDER_ERROR',
@@ -229,5 +212,5 @@ function assertNever(value: never): never {
 
 /** True for a fetch/`AbortSignal` abort, surfaced as `DECISION_ABORTED`. */
 function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')
+  return error instanceof DOMException && error.name === 'AbortError'
 }

@@ -6,9 +6,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync, readdirSync } from 'node:fs'
-import { isIP } from 'node:net'
-import { isAbsolute, join } from 'node:path'
+import { existsSync } from 'node:fs'
 import { DecisionError } from '@deepseek-ai/dsh-decision'
 import type {
   DecisionAnswer,
@@ -106,89 +104,6 @@ export function fromLayaAnswer(key: string, answer: LayaAnswer): DecisionAnswer 
   }
 }
 
-/**
- * Determine whether a hostname is loopback or local.
- *
- * @param host - hostname or IP literal to inspect.
- * @returns true when the host resolves to a local loopback interface.
- */
-export function isLoopbackHost(host: string): boolean {
-  const h = host.replace(/^\[|\]$/g, '')
-  if (h === 'localhost' || h === '::1' || h === '0.0.0.0') return true
-  if (isIP(h) === 4) {
-    return h.startsWith('127.')
-  }
-  return false
-}
-
-/**
- * Determine whether a base URL points to a loopback address.
- *
- * @param baseURL - candidate HTTP(S) base URL.
- * @param fallbackHost - host fallback when `baseURL` cannot be parsed.
- * @returns true when the target host is loopback.
- */
-export function isLoopbackBaseURL(baseURL: string, fallbackHost?: string): boolean {
-  try {
-    const parsed = new URL(baseURL)
-    return isLoopbackHost(parsed.hostname)
-  } catch {
-    return fallbackHost !== undefined ? isLoopbackHost(fallbackHost) : false
-  }
-}
-
-/**
- * Check if an executable path or command is valid to launch.
- *
- * @param executablePath - filesystem path or bare command name.
- * @returns true when the path exists on disk or names a non-empty command.
- */
-export function isExecutableAvailable(executablePath: string): boolean {
-  if (executablePath.includes('/') || executablePath.includes('\\')) {
-    return existsSync(executablePath)
-  }
-  return executablePath.trim().length > 0
-}
-
-/**
- * Check whether a Hugging Face repository snapshot or local model folder exists on disk.
- *
- * @param model - Hugging Face model id or local filesystem path.
- * @param subfolder - optional checkpoint subfolder inside the model directory.
- * @param hubCacheDir - local Hugging Face hub cache root.
- * @returns true when weights or config artifacts are present on disk.
- */
-export function hasCachedModel(model: string, subfolder?: string, hubCacheDir?: string): boolean {
-  const isExplicitPath = isAbsolute(model) || model.startsWith('./') || model.startsWith('../')
-  if (isExplicitPath) {
-    const target = subfolder === undefined ? model : join(model, subfolder)
-    return existsSync(target) && hasModelFiles(target)
-  }
-  if (!hubCacheDir || !existsSync(hubCacheDir)) return false
-  const repoSlug = `models--${model.replace(/\//g, '--')}`
-  const snapshotsDir = join(hubCacheDir, repoSlug, 'snapshots')
-  if (!existsSync(snapshotsDir)) return false
-  try {
-    const entries = readdirSync(snapshotsDir)
-    for (const entry of entries) {
-      const target = subfolder === undefined ? join(snapshotsDir, entry) : join(snapshotsDir, entry, subfolder)
-      if (existsSync(target) && hasModelFiles(target)) return true
-    }
-  } catch {
-    return false
-  }
-  return false
-}
-
-function hasModelFiles(dir: string): boolean {
-  try {
-    const files = readdirSync(dir)
-    return files.some(f => f.endsWith('.safetensors') || f.endsWith('.bin') || f === 'rl_agent_config.json')
-  } catch {
-    return false
-  }
-}
-
 /** The Laya-backed decision provider with on-demand activation. */
 export class LayaDecisionProvider implements DecisionProvider {
   readonly id = LAYA_PROVIDER_ID
@@ -197,19 +112,9 @@ export class LayaDecisionProvider implements DecisionProvider {
   constructor(private readonly options: LayaDecisionProviderOptions) {}
 
   available(): boolean {
-    if (this.options.available !== undefined) {
-      return this.options.available()
-    }
-    if (!URL.canParse(this.options.baseURL) || this.options.model.length === 0) {
-      return false
-    }
-    if (!isLoopbackBaseURL(this.options.baseURL, this.options.host)) {
-      return true
-    }
     return (
-      isExecutableAvailable(this.options.pythonPath)
-      && existsSync(this.options.workerScriptPath)
-      && hasCachedModel(this.options.model, this.options.modelSubfolder, this.options.hubCacheDir)
+      (existsSync(this.options.pythonPath) && existsSync(this.options.workerScriptPath))
+      || URL.canParse(this.options.baseURL)
     )
   }
 
@@ -219,30 +124,12 @@ export class LayaDecisionProvider implements DecisionProvider {
    * @param signal - optional cancellation for the startup wait.
    */
   async ensureWorker(signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted) {
-      throw new DecisionError('Worker startup aborted', 'DECISION_ABORTED')
-    }
-
-    if (!isLoopbackBaseURL(this.options.baseURL, this.options.host)) {
-      const healthy = await this.isHealthy(signal)
-      if (signal?.aborted) {
-        throw new DecisionError('Worker startup aborted', 'DECISION_ABORTED')
-      }
-      if (!healthy) {
-        throw new DecisionError(
-          `Remote Laya worker at ${this.options.baseURL} is not reachable`,
-          'DECISION_PROVIDER_ERROR',
-        )
-      }
-      return
-    }
-
-    if (await this.isHealthy(signal)) {
+    if (await this.isHealthy()) {
       return
     }
 
     if (this.startLock !== undefined) {
-      await raceWithAbort(this.startLock, signal)
+      await this.startLock
       return
     }
 
@@ -250,7 +137,7 @@ export class LayaDecisionProvider implements DecisionProvider {
       try {
         if (await this.isHealthy()) return
 
-        if (!isExecutableAvailable(this.options.pythonPath) || !existsSync(this.options.workerScriptPath)) {
+        if (!existsSync(this.options.pythonPath) || !existsSync(this.options.workerScriptPath)) {
           throw new DecisionError(
             `Cannot start Laya worker: python (${this.options.pythonPath}) or worker script (${this.options.workerScriptPath}) missing`,
             'DECISION_PROVIDER_UNAVAILABLE',
@@ -276,26 +163,14 @@ export class LayaDecisionProvider implements DecisionProvider {
           {
             stdio: 'ignore',
             detached: true,
-            env: {
-              ...process.env,
-              USE_TF: '0',
-              ...(this.options.hubCacheDir ? { HF_HUB_CACHE: this.options.hubCacheDir } : {}),
-            },
           },
         )
-        let spawnError: Error | undefined
-        child.once('error', (err) => {
-          spawnError = err
-        })
         child.unref()
 
         const deadline = Date.now() + this.options.startupTimeoutMs
         while (Date.now() < deadline) {
-          if (spawnError !== undefined) {
-            throw new DecisionError(
-              `Failed to launch Laya worker: ${spawnError.message}`,
-              'DECISION_PROVIDER_UNAVAILABLE',
-            )
+          if (signal?.aborted) {
+            throw new DecisionError('Worker startup aborted', 'DECISION_ABORTED')
           }
           if (await this.isHealthy()) {
             return
@@ -312,18 +187,13 @@ export class LayaDecisionProvider implements DecisionProvider {
       }
     })()
 
-    await raceWithAbort(this.startLock, signal)
+    await this.startLock
   }
 
-  private async isHealthy(signal?: AbortSignal): Promise<boolean> {
-    if (signal?.aborted) return false
+  private async isHealthy(): Promise<boolean> {
     try {
-      const probeSignal = signal !== undefined
-        ? AbortSignal.any([signal, AbortSignal.timeout(this.options.healthTimeoutMs)])
-        : AbortSignal.timeout(this.options.healthTimeoutMs)
       const res = await fetch(`${this.options.baseURL}/health`, {
-        signal: probeSignal,
-        redirect: 'error',
+        signal: AbortSignal.timeout(this.options.healthTimeoutMs),
       })
       return res.ok
     } catch {
@@ -342,7 +212,6 @@ export class LayaDecisionProvider implements DecisionProvider {
     try {
       response = await fetch(`${this.options.baseURL}/v1/systemone`, {
         method: 'POST',
-        redirect: 'error',
         headers: {
           'content-type': 'application/json',
           'accept': 'application/json',
@@ -366,13 +235,7 @@ export class LayaDecisionProvider implements DecisionProvider {
       } catch (error: unknown) {
         if (isAbortError(error)) throw new DecisionError('Laya evaluation aborted', 'DECISION_ABORTED', { cause: error })
       }
-      const code =
-        status === 429
-          ? 'DECISION_RATE_LIMITED'
-          : status >= 400 && status < 500
-            ? 'DECISION_REQUEST_REJECTED'
-            : 'DECISION_PROVIDER_ERROR'
-      throw new DecisionError(message, code)
+      throw new DecisionError(message, 'DECISION_PROVIDER_ERROR')
     }
 
     let payload: LayaResponse
@@ -403,28 +266,6 @@ export class LayaDecisionProvider implements DecisionProvider {
   }
 }
 
-function raceWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return promise
-  if (signal.aborted) return Promise.reject(new DecisionError('Worker startup aborted', 'DECISION_ABORTED'))
-  return new Promise((resolve, reject) => {
-    const onAbort = () => {
-      signal.removeEventListener('abort', onAbort)
-      reject(new DecisionError('Worker startup aborted', 'DECISION_ABORTED'))
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-    promise.then(
-      (res) => {
-        signal.removeEventListener('abort', onAbort)
-        resolve(res)
-      },
-      (err: unknown) => {
-        signal.removeEventListener('abort', onAbort)
-        reject(err instanceof Error ? err : new DecisionError(String(err), 'DECISION_PROVIDER_ERROR'))
-      },
-    )
-  })
-}
-
 function assertNever(value: never): never {
   throw new DecisionError(
     `unhandled decision question type: ${JSON.stringify(value)}`,
@@ -433,6 +274,5 @@ function assertNever(value: never): never {
 }
 
 function isAbortError(error: unknown): boolean {
-  if (error instanceof DecisionError && error.code === 'DECISION_ABORTED') return true
   return error instanceof DOMException && error.name === 'AbortError'
 }

@@ -68,7 +68,6 @@
     "@deepseek-ai/dsh-decision-consumers": "workspace:*",
     "@deepseek-ai/dsh-decision-jev": "workspace:*",
     "@deepseek-ai/dsh-decision-laya": "workspace:*",
-    "@deepseek-ai/dsh-decision-llm": "workspace:*",
     "@deepseek-ai/dsh-mcp-resources": "workspace:*",
     "@deepseek-ai/dsh-permission-presets": "workspace:*",
     "@deepseek-ai/dsh-plan-mode": "workspace:*",

@@ -5,7 +5,6 @@ import * as jevPlugin from '@deepseek-ai/dsh-decision-jev'
 import type { JevAnswer } from '@deepseek-ai/dsh-decision-jev/src/types.ts'
 import {
   JEV_DEFAULT_BASE_URL,
-  JEV_DEFAULT_TIMEOUT_MS,
   JEV_EVALUATION_PATH,
   JevDecisionProvider,
   fromJevAnswer,
@@ -222,42 +221,7 @@ describe('JevDecisionProvider evaluation', () => {
     const controller = new AbortController()
     await makeProvider().evaluate(request, controller.signal)
     const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
-    expect(init.signal?.aborted).toBe(false)
-    controller.abort()
-    expect(init.signal?.aborted).toBe(true)
-  })
-
-  /** Install a `fetch` that never settles until its signal aborts, like a stalled upstream. */
-  function stubHangingFetch() {
-    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
-      const signal = init.signal
-      if (signal?.aborted === true) {
-        reject(signal.reason as Error)
-        return
-      }
-      signal?.addEventListener('abort', () => { reject(signal.reason as Error) })
-    })))
-  }
-
-  it('fails a call still pending at the deadline as a provider error, so the fallback runs', async () => {
-    stubHangingFetch()
-    const started = performance.now()
-    await expect(makeProvider({ timeoutMs: 30 }).evaluate(request)).rejects.toThrow(
-      expect.objectContaining({ code: 'DECISION_PROVIDER_ERROR', message: 'Jev did not answer within 30 ms' }) as Error,
-    )
-    expect(performance.now() - started).toBeLessThan(1_000)
-  })
-
-  it('keeps a caller cancellation an abort even when a deadline is configured', async () => {
-    stubHangingFetch()
-    const controller = new AbortController()
-    const pending = makeProvider({ timeoutMs: 5_000 }).evaluate(request, controller.signal)
-    controller.abort()
-    await expect(pending).rejects.toThrow(expect.objectContaining({ code: 'DECISION_ABORTED' }) as Error)
-  })
-
-  it('defaults the deadline to three seconds', () => {
-    expect(JEV_DEFAULT_TIMEOUT_MS).toBe(3_000)
+    expect(init.signal).toBe(controller.signal)
   })
 })
 

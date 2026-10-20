@@ -48,8 +48,6 @@ interface AdapterOptions {
   readonly activeFailureCode?: string
   readonly failedProbes?: ReadonlySet<string>
   readonly emptyProbes?: ReadonlySet<string>
-  /** Probes that stream only reasoning, then end abnormally once the probe token budget runs out. */
-  readonly reasoningOnlyProbes?: ReadonlySet<string>
   readonly agentFailures?: Readonly<Record<string, number>>
   readonly blockProbes?: boolean
 }
@@ -116,12 +114,6 @@ class FailoverAdapter extends LlmAdapter {
     if (!agentRequest && this.options.emptyProbes?.has(options.model) === true) {
       yield { type: 'usage', usage: { inputTokens: 5, outputTokens: 0 } }
       yield { type: 'finish', reason: { kind: 'stop' } }
-      return
-    }
-    if (!agentRequest && this.options.reasoningOnlyProbes?.has(options.model) === true) {
-      yield { type: 'block-start', index: 0, blockType: 'reasoning' }
-      yield { type: 'reasoning-delta', index: 0, text: 'Plan: reverse the bytes with toReversed.' }
-      yield failure('PI_AI_ERROR')
       return
     }
     if (agentRequest && options.model === 'active') {
@@ -539,47 +531,6 @@ describe('live model failover', () => {
     await agent.whenIdle()
 
     expect(provider.requests).toHaveLength(0)
-    expect(agent.session.requestHeader()?.config.model).toBe('candidate-b')
-  })
-
-  it('walks past a fully dead first probe window to a healthy route later in the list', async () => {
-    const provider = new SelectingProvider()
-    const adapter = new FailoverAdapter({ failedProbes: new Set(['candidate-a', 'candidate-b']) })
-    const { ctx } = await harness(provider, adapter, {
-      maxCandidates: 2,
-      candidates: [
-        { provider: 'mock', model: 'candidate-a' },
-        { provider: 'mock', model: 'candidate-b' },
-        { provider: 'mock', model: 'candidate-c' },
-      ],
-    })
-    const agent = await start(ctx, 'jev-later-window')
-
-    await agent.whenIdle()
-
-    expect(requestRoutes(adapter)).toEqual([
-      { model: 'active', agentLoop: true },
-      { model: 'candidate-a', agentLoop: false },
-      { model: 'candidate-b', agentLoop: false },
-      { model: 'candidate-c', agentLoop: false },
-      { model: 'candidate-c', agentLoop: true },
-    ])
-    expect(agent.session.snapshotEvents().some(event => event.type === 'llm/retry')).toBe(false)
-    expect(agent.session.requestHeader()?.config.model).toBe('candidate-c')
-  })
-
-  it('treats a reasoning-only probe cut off by its token budget as a live route', async () => {
-    const provider = new SelectingProvider()
-    const adapter = new FailoverAdapter({
-      failedProbes: new Set(['candidate-a']),
-      reasoningOnlyProbes: new Set(['candidate-b']),
-    })
-    const { ctx } = await harness(provider, adapter)
-    const agent = await start(ctx, 'jev-reasoning-probe')
-
-    await agent.whenIdle()
-
-    expect(agent.session.snapshotEvents().some(event => event.type === 'llm/retry')).toBe(false)
     expect(agent.session.requestHeader()?.config.model).toBe('candidate-b')
   })
 

@@ -2276,9 +2276,6 @@ importers:
       '@deepseek-ai/dsh-decision-laya':
         specifier: workspace:*
         version: link:../../decision/decision-laya
-      '@deepseek-ai/dsh-decision-llm':
-        specifier: workspace:*
-        version: link:../../decision/decision-llm
       '@deepseek-ai/dsh-deepseek-account-platform':
         specifier: workspace:*
         version: link:../../credentials/deepseek-account-platform

@@ -413,12 +413,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     const agent = context.agent
     if (agent === undefined || pinnedSkills.length === 0) return assembled
     const lookup = { cwd: agent.session.header.cwd, signal: context.signal, scope: agent }
-    // Several tool-skill instances can serve one agent (an agent-preset row beside a profile row),
-    // each hooked into the same assembly; a skill another instance already pinned must not repeat.
-    const present = new Set(assembled.sections.map(section => section.name))
     const pinned: AssembledSection[] = []
     for (const pinnedName of pinnedSkills) {
-      if (present.has(`skill:pinned:${pinnedName}`)) continue
       let skill: SkillDefinition | undefined
       try {
         skill = await ctx.skills.get(pinnedName, lookup)
