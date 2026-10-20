@@ -47,6 +47,10 @@ agent 可以在会话期间发现并加载 skill。在首次请求前，如果�
 |---|---|---|
 | `catalogDescriptionMaxLength` | `500` | 会话目录中渲染的规范化描述最大长度；最小为 3 |
 | `pinnedSkills` | `['dsh-design-thinking-general']` | 其完整指令加入每次系统提示组装的 skill 名称；无效名称在加载时失败，缺失、无法加载或不可被模型调用的名称按次跳过。空数组禁用固定注入。 |
+| `skillCascade.enabled` | `false` | 运行建议性的两阶段 skill 级联（cascade）；需要已挂载的 decision 服务 |
+| `skillCascade.categories` | `[]` | 有序的 `{ name, description, skills }` 第一阶段类别；重复名称与无效 skill 名称在加载时失败 |
+| `skillCascade.ungroupedName` / `ungroupedDescription` | `other` / `Skills outside every other category.` | 收纳所有未被任何已配置类别列出的实时 skill 的类别 |
+| `skillCascade.maxTaskChars` / `timeoutMs` | `4000` / `10000` | 用户文本上限，以及覆盖目录读取与两次 decision 调用的截止时间 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-skill)是每个受支持字段的穷尽式真源。
 
@@ -56,6 +60,7 @@ agent 可以在会话期间发现并加载 skill。在首次请求前，如果�
 - **加载工具。** 模型以精确的 skill 名称调用 `skill`，并收到完整指令正文以及规范的 `<skill_content>` 块中的资源指引；该结果作为普通工具历史保留。
 - **用户显式调用。** 直接用户输入中的 `/name` token 若指名某个用户可调用 skill，会把该 skill 的指令注入该步骤，而无需模型自行加载。
 - **固定指令。** 配置的 `pinnedSkills` 正文加入每一步组装后的系统提示，因此无论主题是什么，其指令都在第一个 token 之前存在，无需路由、工具调用或手势。
+- **建议性级联不向模型提供任何内容。** 启用 `skillCascade.enabled` 后，每个用户轮次的第一步会在后台启动一次 decision 级联——先选类别，再在该类别内选出具体 skill——之后的 `skill` 调用会在日志中记录模型的选择是否一致。步骤消息、工具结果与会话日志均不变。
 - **实时目录更新。** 后续成员关系、描述或可见性变化会追加完整的替换目录；删除全部 skill 时会追加空目录，停用较早的名称。
 
 ### 可观察的成功与失败
@@ -81,6 +86,7 @@ agent 可以在会话期间发现并加载 skill。在首次请求前，如果�
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：工具注册、目录与手势 pre-step 监听器、固定系统提示注入、渲染与 digest |
+| [`src/cascade-advisor.ts`](src/cascade-advisor.ts) | 建议性 cascade：目录分组、每个 agent turn 进行一次后台级联、一致性日志记录 |
 
 ### 目录生命周期
 
@@ -93,6 +99,10 @@ agent 可以在会话期间发现并加载 skill。在首次请求前，如果�
 ### 固定提示注入
 
 section 的文本提供方是同步的，而 skill 正文是异步加载的，因此固定 skill 经由 `system-prompt/assemble` 瀑布加入：在 `next()` 产出注册表构建的各 section 之后，以调用 agent 的 cwd 与作用域加载每个配置名称，并作为 `skill:pinned:<name>` section 追加，经共享的 `renderSkillContent` 渲染。追加在末尾把指令材料放在部署的身份与策略之后、最贴近对话的位置。解析不到、加载失败或不可被模型调用的名称按次跳过，因此损坏的固定 skill 退化为仅目录路由，而不是让每个模型步骤都失败；拥有有效完整提示 section 的作用域（web 运行时）会连同该组装的其余 section 一起丢弃此贡献。
+
+### 建议性 skill 级联
+
+级联监听器在目录解析之后运行，且仅当调用 agent 看到本插件注册的那个 `skill` 工具、并且该步骤带有直接用户文本时才运行。它按 Agent 与轮次各保留一个待定级联，因此同一轮次的后续步骤复用它，并在 `agent/disposed` 时丢弃该条目。分组目录把被多个类别列出的 skill 归入其第一个类别，并把所有未列出的实时 skill 放入未分组类别；第一阶段判断类别与 `needs_skill`，第二阶段只看到获胜类别内的 skill（[`cascadeSkillSelection`](../../decision/decision-consumers/README.zh.md#the-sixteen-consumers)）。`skill` 调用启动比较但不等待它，因此加载从不被延迟；一致性日志在级联完成时记录，级联失败只记录警告。该监听器不新增会话事件，因为它计算的内容都不会进入模型请求。
 
 </details>
 
@@ -267,6 +277,7 @@ Load referenced resources only as needed.
 - **加载是一次性文本**——远程提供方缓慢或 skill 正文很大时，不提供部分内容、流式输出或缓存内容句柄。
 - **目录替换采用全量列表**——一个名称或描述发生变化，就会追加所有可见摘要；这样能显式停用陈旧名称，但 token 成本与目录大小成正比。
 - **正文不做版本化**——仅修改正文不会改变目录 digest，也不会通知模型；后续工具调用会读取提供方的当前内容，而先前工具结果仍是历史事实。
+- **skill 级联仅为建议性**——它每轮记录一个类别与 skill，以及与模型 `skill` 调用的一致性，但尚未缩小已发布目录或加载 skill。强制执行需要一个记入日志的按轮次目录子集，在类别变化时会替换整份目录消息并损失前缀缓存重用；这要等记录下的一致率证明值得之后再做。
 - **固定正文与主题无关地进入每个对话**——每个 `pinnedSkills` 条目都会为部署的每个 agent 的每次请求付出一份渲染正文的成本；只是偶尔需要该 skill 的部署应将其移出列表，改用目录路由。
 
 <a id="dev-note"></a>

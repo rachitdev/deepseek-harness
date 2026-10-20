@@ -38,6 +38,7 @@
   "devDependencies": {
     "@deepseek-ai/dsh-launch-environment": "workspace:*",
     "@deepseek-ai/dsh-decision": "workspace:*",
+    "@deepseek-ai/dsh-decision-jev": "workspace:*",
     "@deepseek-ai/cordis": "workspace:~"
   }
 }

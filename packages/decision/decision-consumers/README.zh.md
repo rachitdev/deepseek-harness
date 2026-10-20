@@ -1,5 +1,5 @@
 ---
-description: "十四个带类型的 decision 消费方，包括并行 canary 模型 failover 与召回记忆的实时筛查。"
+description: "十六个带类型的 decision 消费方，包括并行 canary 模型 failover、召回记忆的实时筛查与逐轮模型分诊。"
 kind: "package-reference"
 ---
 
@@ -9,14 +9,15 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-decision-consumers` 提供依据 `ctx.decision` 带类型判断进行分支的消费方。十二个导出函数分别对浏览器动作与目标、工具风险、模型档位、检索候选、compaction 条目、loop 状态、subagent 结果、验证工作、技能路由、网页内容安全以及与仓库指令的偏离进行分类。实时 failover 拦截符合条件的 Agent 请求失败，并发探测备选路由，由 decision 提供方选定一条健康路由，再通过它重试同一步骤。实时召回过滤在步骤运行前判断插件注入的每条记忆，省略低相关条目，并扣留存储型提示注入。
+`dsh-decision-consumers` 提供依据 `ctx.decision` 带类型判断进行分支的消费方。导出函数分别对浏览器动作、工具风险、模型档位、检索候选、compaction 条目、loop 状态、subagent 结果、验证工作、技能、网页内容安全以及指令偏离进行分类。实时 failover 在符合条件的请求失败后探测备选路由，并通过提供方选定的健康路由重试该步骤。实时召回过滤在步骤前省略低相关记忆条目，并扣留存储型提示注入。实时轮次分诊在生成前为每个用户轮次指定模型档位，并记录或强制执行该档位。
 
 ## 目录
 
 - [使用本包](#use-this-package)
-- [十四个消费方](#the-fourteen-consumers)
+- [十六个消费方](#the-sixteen-consumers)
 - [实时模型 failover](#live-model-failover)
 - [实时召回过滤](#live-recall-filter)
+- [实时轮次分诊](#live-turn-triage)
 - [理解实现](#understand-the-implementation)
 - [延伸阅读](#further-exploration)
 - [开发备注](#dev-note)
@@ -50,8 +51,8 @@ if (step.action.type === 'click') {
 }
 ```
 
-<a id="the-fourteen-consumers"></a>
-## 十四个消费方
+<a id="the-sixteen-consumers"></a>
+## 十六个消费方
 
 | 消费方 | 函数 | 用途 | 主要问题 |
 |---|---|---|---|
@@ -69,6 +70,8 @@ if (step.action.type === 'click') {
 | **12. 指令偏离** | `assessInstructionDrift` | 对工作是否偏离仓库指令给出建议性判断 | `drift`（Boolean） |
 | **13. 浏览器动作策略** | `decideBrowserAction` | 依据观测到的元素表选择下一个浏览器操作及其目标 | `operation`（Choice）、每个可用操作一个 `<operation>_target`（Choice） |
 | **14. 召回过滤** | `installRecallFilter`、`screenRecallItems` | 在步骤前对召回记忆做相关性与存储型注入筛查 | 每个条目的 `rel_<n>`（Score，0..3 有用度）、`inj_<n>`（Boolean） |
+| **15. 技能级联** | `cascadeSkillSelection` | 在调用方分组的目录上做渐进式披露的技能路由；只有一个选项的阶段不发起调用 | `category`（Choice）、`needs_skill`（Boolean），随后在获胜类别内的 `skill`（Choice） |
+| **16. 轮次分诊** | `installTurnTriage`、`triageTurn` | 生成前为每个轮次选择模型档位，仅记录或强制执行 | 在已配置档位上的 `tier`（Choice） |
 
 <a id="live-model-failover"></a>
 ## 实时模型 failover
@@ -125,6 +128,42 @@ if (step.action.type === 'click') {
 
 召回来源在自身 `next()` 之后追加消息，因此过滤器必须是最外层的 `agent/pre-step` 监听器。插件是并发应用的，配置顺序无法保证这一点；过滤器在每次 `agent/created` 时重新注册其 `prepend` 监听器，位于所有启动期注册之后。
 
+<a id="live-turn-triage"></a>
+## 实时轮次分诊
+
+设置 `turnTriage.enabled` 会注册一个 `agent/pre-step` 监听器：当某个步骤携带直接的用户文本、且该 Agent 的当前轮次还没有判定时，发起一次 decision 调用。该调用发送用户文本（最多 `maxQueryChars`）与上一条 assistant 回复的尾部（最多 `maxContextChars`），并提出一个 `tier` 选择题，选项为已配置档位的名称与描述。获胜概率低于 `minConfidence` 时选用 `fallbackTier`。委派 Agent（`delegationDepth` 大于 0）会被跳过，除非 `includeSubagents` 为 true。档位少于两个、档位名称重复，或 `fallbackTier` 未指向任何档位的配置会在插件加载时抛错。
+
+- `mode: advisory` 记录 `turn triage (advisory): agent … turn … -> <tier> (chose <tier> at <p>) route <provider>/<model> in <ms>ms via <provider id>`，不改变模型收到的任何内容。
+- `mode: enforce` 还会注册一个 `agent/request` 监听器。被分诊轮次的每个请求都等待判定，并把 `provider`、`model` 与 `reasoningEffort` 切换为该档位的路由（档位未设置 effort 时丢弃继承的 effort）。随之产生的 `request/header` 记录生效路由。更早注册的监听器（例如实时 failover 的接管）仍会为其自身步骤替换已路由的配置。
+
+提供方失败、畸形答案或超过 `timeoutMs` 时记录一条警告，该轮次保留其已配置的模型。
+
+```yaml
+- id: decision-consumers
+  config:
+    turnTriage:
+      enabled: true
+      mode: advisory
+      fallbackTier: standard
+      minConfidence: 0.5
+      maxQueryChars: 2000
+      maxContextChars: 800
+      timeoutMs: 3000
+      tiers:
+        - name: fast
+          description: Short acknowledgements, exact-reply requests, and one-fact lookups
+          provider: omniroute
+          model: agy/gemini-3.8-flash-high
+        - name: standard
+          description: Routine questions, single-tool updates, and single-file edits
+          provider: omniroute
+          model: cc/claude-sonnet-5-5
+        - name: frontier
+          description: System design, multi-component builds, deep debugging, and security analysis
+          provider: omniroute
+          model: auto/best-coding
+```
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
@@ -164,6 +203,20 @@ if (step.action.type === 'click') {
 
 过滤后的召回消息就是被记录的那一条，因此后续请求重放相同的字节，前缀缓存不受影响。Canary 调用只使用一条 user 消息，不复用 Agent 对话前缀。提供方／模型接管会改变主请求路由，因此缓存复用取决于所选适配器与提供方；调用方不得假定失败路由的缓存仍然有效。仲裁请求是一次独立的 decision 调用，其提示词由 decision 提供方构建并丢弃。
 
+### 分诊后的模型路由
+
+#### 模型看到什么
+
+仅记录模式的分诊不向 Agent 的模型发送任何内容。强制模式的分诊改变接收该轮次请求的提供方与模型；消息内容不变，每个 `request/header` 记录所用路由。
+
+#### Token 影响
+
+分诊不会给 Agent 的请求增加 token。每个被分诊的轮次在对话之外增加一次 decision 调用。
+
+#### KV Cache 影响
+
+若某轮次被路由到与上一轮次不同的模型，就无法复用上一个模型已缓存的前缀，因此每次强制切换档位时，新路由的前缀缓存都从冷启动开始。
+
 <a id="known-limitations-and-deferred-work"></a>
 ## 已知限制与待办工作
 
@@ -176,4 +229,5 @@ if (step.action.type === 'click') {
 - **Failover 扇出：** 每个已授权的 canary 都会收到最近一条 user 任务。处理提供方受限数据的部署必须把 `allowedModels` 与回退 `candidates` 保持在允许的提供方集合内。
 - **召回过滤校准：** `minRelevance` 0.5 与 `injectionThreshold` 0.7 是在 40 条已记录召回（419 个条目）上、加入 20 条植入攻击与 20 条良性安全笔记后，针对 TypeSafe Jev 实测得出的：每条植入攻击得分 0.75–0.99 或被网关拒绝，良性条目与已记录条目均不超过 0.16。其他 decision 提供方需要各自校准。每个被筛查的步骤增加一次 decision 往返（p50 约 0.45 秒，p95 约 0.85 秒）。
 - **召回过滤范围：** 只筛查来自已配置来源的单文本块消息；记忆插件的档案消息（`form: instructions`）以及不含 `<memory uri>` 元素的召回格式不经筛查直接通过。"go ahead" 这类简短跟进会结合上一条 assistant 回复来判断，但仍可能省略之后步骤所需的条目；省略说明会提示模型去搜索记忆。
+- **轮次分诊校准：** 针对 TypeSafe Jev，在 60 个人工标注为 fast、standard 或 frontier 的已记录用户轮次上回放上述三档策略：27 个轮次与标注一致，23 个被路由到比标注更便宜的档位（其中 2 个 frontier 轮次被路由到 fast），10 个被路由到更贵的档位；延迟 p50 为 0.31 秒，p95 为 0.41 秒。提高 `minConfidence` 无法区分被低配路由的轮次，因为它们的置信度与判对的轮次相同。在部署自身的档位描述把低配路由率降到可接受水平之前，保持 `mode: advisory`。
 - **仲裁器可用性：** 带排名的多存活者接管仍优先使用可触达的 JEV／Laya 判决方。判决方不可用时，failover 按候选顺序取第一条健康探测，而不是同路由重试，因此冷却或 429 模型无法卡住本轮。仅当所有 canary 也都失败时才回退到同路由重试。

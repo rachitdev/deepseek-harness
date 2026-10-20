@@ -12,6 +12,7 @@ import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-decision'
 import { adjudicateSkillSelection, type SkillAdjudication } from '@deepseek-ai/dsh-decision-consumers'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { createCascadeAdvisor, type CascadeAdvisor, type CascadeAdvisorOptions, type SkillCascadeCategoryConfig } from './cascade-advisor.ts'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionSeq, type UserMessage } from '@deepseek-ai/dsh-session'
 import {
@@ -93,7 +94,42 @@ export interface Config {
   skillAdjudicationPhaseConfidence?: number
   /** Maximum user-task characters sent to the decision provider. Defaults to 4000. */
   skillAdjudicationMaxTaskChars?: number
+  /**
+   * Advisory two-stage (category, then skill) cascade over the live catalog, run in the
+   * background on each user turn and compared with the model's `skill` call in the log only.
+   * Requires a mounted decision service when enabled.
+   */
+  skillCascade?: SkillCascadeConfig
 }
+
+/** Advisory skill-cascade configuration. */
+export interface SkillCascadeConfig {
+  /** Run the advisory cascade. Defaults to false. */
+  enabled?: boolean
+  /** Stage-one categories in judging order; a skill listed twice belongs to its first category. */
+  categories?: SkillCascadeCategoryConfig[]
+  /** Name of the category holding every live skill no configured category lists. Defaults to `other`. */
+  ungroupedName?: string
+  /** Description of the ungrouped category. */
+  ungroupedDescription?: string
+  /** Maximum user-task characters sent to the decision provider. Defaults to 4000. */
+  maxTaskChars?: number
+  /** Deadline for both cascade stages together. Defaults to 10000 ms. */
+  timeoutMs?: number
+}
+
+const SkillCascadeConfig: z<SkillCascadeConfig> = z.object({
+  enabled: z.boolean().default(false),
+  categories: z.array(z.object({
+    name: z.string().required(),
+    description: z.string().required(),
+    skills: z.array(z.string()).required(),
+  })).default([]),
+  ungroupedName: z.string().default('other'),
+  ungroupedDescription: z.string().default('Skills outside every other category.'),
+  maxTaskChars: z.number().default(4000),
+  timeoutMs: z.number().default(10000),
+})
 
 /** Validate and default the model-facing skill catalog configuration. */
 export const Config: z<Config> = z.object({
@@ -104,6 +140,7 @@ export const Config: z<Config> = z.object({
   skillAdjudicationRelevanceThreshold: z.number().min(0).max(1).default(0.65),
   skillAdjudicationPhaseConfidence: z.number().min(0).max(1).default(0.55),
   skillAdjudicationMaxTaskChars: z.number().default(4000),
+  skillCascade: SkillCascadeConfig,
 })
 
 /**
@@ -128,9 +165,16 @@ export function apply(ctx: Context, config: Config = {}): void {
   const skillAdjudicationMaxTaskChars = config.skillAdjudicationMaxTaskChars ?? 4000
   assertPositiveInteger('skillAdjudicationMaxCandidates', skillAdjudicationMaxCandidates, 2)
   assertPositiveInteger('skillAdjudicationMaxTaskChars', skillAdjudicationMaxTaskChars, 1)
-  const decision = skillAdjudication ? ctx.get('decision') : undefined
-  if (skillAdjudication && decision === undefined) {
+  const decisionService = skillAdjudication || config.skillCascade?.enabled === true ? ctx.get('decision') : undefined
+  if (skillAdjudication && decisionService === undefined) {
     throw new Error('tool-skill: skillAdjudication requires a mounted decision service')
+  }
+  const decision = skillAdjudication ? decisionService : undefined
+  const cascadeOptions = resolveSkillCascade(config.skillCascade)
+  let cascade: CascadeAdvisor | undefined
+  if (cascadeOptions !== undefined) {
+    if (decisionService === undefined) throw new Error('tool-skill: skillCascade requires a mounted decision service')
+    cascade = createCascadeAdvisor(ctx, decisionService, cascadeOptions)
   }
 
   const skillTool = defineTool({
@@ -195,6 +239,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (!isModelInvocable(summary)) {
         throw new Error(`skill "${args.name}" is not available for model invocation`)
       }
+      // Advisory: the comparison logs once the background cascade settles and never delays the load.
+      if (cascade !== undefined && exec.agent !== undefined) void cascade.compare(exec.agent, args.name)
       let routing: SkillAdjudication | undefined
       if (decision !== undefined && exec.agent !== undefined) {
         const request = latestUserTask(exec.agent, skillAdjudicationMaxTaskChars)
@@ -277,6 +323,25 @@ export function apply(ctx: Context, config: Config = {}): void {
     return { ...decision, messages: [...decision.messages, ...injections] }
   })
 
+  if (cascade !== undefined) {
+    const advisor = cascade
+    // Advisory only: the cascade starts in the background on a turn's first step and never
+    // changes the step's messages, so the model's request is identical with or without it.
+    ctx.on('agent/pre-step', async ({ agent, messages, turn }, next): Promise<PreStepDecision> => {
+      const decision = await next()
+      if (decision.kind === 'reject') return decision
+      if (ctx.tools.get(skillTool.name, agent) !== skillTool) return decision
+      advisor.start(agent, turn, messages, async (signal) => {
+        const summaries = await ctx.skills.list({ cwd: agent.session.header.cwd, signal, scope: agent })
+        return summaries.filter(isModelInvocable)
+      })
+      return decision
+    })
+    ctx.on('agent/disposed', ({ agent }) => {
+      advisor.forget(agent)
+    })
+  }
+
   // Register after the tool so reverse teardown removes guidance first. Exact definition
   // identity prevents a scoped shadow merely named `skill` from inheriting this catalog.
   //
@@ -348,8 +413,12 @@ export function apply(ctx: Context, config: Config = {}): void {
     const agent = context.agent
     if (agent === undefined || pinnedSkills.length === 0) return assembled
     const lookup = { cwd: agent.session.header.cwd, signal: context.signal, scope: agent }
+    // Several tool-skill instances can serve one agent (an agent-preset row beside a profile row),
+    // each hooked into the same assembly; a skill another instance already pinned must not repeat.
+    const present = new Set(assembled.sections.map(section => section.name))
     const pinned: AssembledSection[] = []
     for (const pinnedName of pinnedSkills) {
+      if (present.has(`skill:pinned:${pinnedName}`)) continue
       let skill: SkillDefinition | undefined
       try {
         skill = await ctx.skills.get(pinnedName, lookup)
@@ -363,6 +432,33 @@ export function apply(ctx: Context, config: Config = {}): void {
     if (pinned.length === 0) return assembled
     return { ...assembled, sections: [...assembled.sections, ...pinned] }
   })
+}
+
+/**
+ * Resolve the advisory cascade settings, or `undefined` when the cascade is disabled.
+ * @param config - raw `skillCascade` configuration.
+ * @returns advisor options with every default applied.
+ */
+function resolveSkillCascade(config: SkillCascadeConfig | undefined): CascadeAdvisorOptions | undefined {
+  if (config?.enabled !== true) return undefined
+  const resolved = SkillCascadeConfig(config) as Required<SkillCascadeConfig>
+  assertPositiveInteger('skillCascade.maxTaskChars', resolved.maxTaskChars, 1)
+  assertPositiveInteger('skillCascade.timeoutMs', resolved.timeoutMs, 1)
+  const names = new Set([resolved.ungroupedName])
+  for (const category of resolved.categories) {
+    if (names.has(category.name)) throw new Error(`tool-skill: skillCascade category "${category.name}" is duplicated`)
+    names.add(category.name)
+    const invalid = category.skills.find(skill => !isSkillName(skill))
+    if (invalid !== undefined) {
+      throw new Error(`tool-skill: skillCascade category "${category.name}" lists invalid skill name "${invalid}"`)
+    }
+  }
+  return {
+    categories: resolved.categories,
+    ungrouped: { name: resolved.ungroupedName, description: resolved.ungroupedDescription },
+    maxTaskChars: resolved.maxTaskChars,
+    timeoutMs: resolved.timeoutMs,
+  }
 }
 
 function renderCatalogMessage(entries: SkillCatalogSource['entries']): UserMessage {

@@ -2,13 +2,13 @@
 
 English | [中文](voice-input.zh.md)
 
-Experimental speech recognition has three roles: the [Service Definition](../../packages/experimental/speech-to-text/README.md) routes named providers, the [SenseVoice provider](../../packages/experimental/speech-to-text-sensevoice/README.md) owns local inference, and the [Remote consumer](../../packages/experimental/api-speech-to-text/README.md) serves the browser. The [optional bundle](../../packages/experimental/voice-input-bundle/README.md) composes them with the microphone UI.
+Experimental speech recognition has three roles: the [Service Definition](../../packages/experimental/speech-to-text/README.md) routes named providers, the [SenseVoice provider](../../packages/experimental/speech-to-text-sensevoice/README.md) and optional [Apple Native provider](../../packages/experimental/speech-to-text-apple-native/README.md) own local inference, and the [Remote consumer](../../packages/experimental/api-speech-to-text/README.md) serves the browser. The [optional bundle](../../packages/experimental/voice-input-bundle/README.md) composes them with the microphone UI.
 
 ## Provider selection
 
 `SpeechProviderId` brands the registration identity. `SpeechProviderInfo` carries a display name, accepted `languages` hints and `host-local` or `cloud` processing location. `SpeechRequest` contains WAV bytes and optional provider/language selection; `resolve()` produces `SpeechSpec` with one captured provider instance. A missing provider or unsupported language fails; replacement or withdrawal invalidates resolved work. Audio never falls back to a different provider.
 
-`SpeechProvider.transcribe()` accepts one complete `SpeechInput` and an `AbortSignal`. `Transcript` returns plain `text`, `audioSeconds` and `inferenceSeconds`. Providers honor cancellation and settle their work before deregistration completes. The local provider serializes calls, bounds its queue and manages its worker lifetime independently of Sessions.
+`SpeechProvider.transcribe()` accepts one complete `SpeechInput` and an `AbortSignal`. `Transcript` returns plain `text`, `audioSeconds` and `inferenceSeconds`. Providers honor cancellation and settle their work before deregistration completes. SenseVoice serializes calls and bounds its worker queue; Apple Native starts one local MCP process per recording. Both own their work independently of Sessions.
 
 ## Browser and Host ownership
 
@@ -20,7 +20,7 @@ The input facade captures a revision-bearing selection before recording. `InputA
 
 `SpeechProviderInfo.downloadSources` advertises preparation origins. `SpeechPreparationOptions.downloadSource` selects one for a task; omission preserves provider policy. SenseVoice validates the advertised choice, pins a manual source without fallback, and rejects source changes during active preparation. The UI keeps a choice for retries in the current card; it is not a persisted recognition preference.
 
-The Host provider owns one preparation task across page and Session changes. The Client shares one `follow()` subscription across the composer, setup prompt and bundle details. Optional `SpeechSetupEstimate` metadata supplies provider-specific planning hints, separate from measured progress. `SpeechPreparationStepKind` identifies ordered resource operations; `SpeechPreparationStep` records each status and start time. The complete `SpeechPreparationState` retains these steps after cancellation or failure. The collapsed UI shows the current operation; expanding lists all steps, with byte progress or elapsed time only for the running step. Closing an observer never cancels preparation. Verified files survive retries and idle worker reclamation.
+The Host provider owns one preparation task across page and Session changes. The Client shares one `follow()` subscription across the composer, setup prompt and bundle details. Optional `SpeechSetupEstimate` metadata supplies provider-specific planning hints, separate from measured progress. `SpeechPreparationStepKind` identifies ordered resource operations; `SpeechPreparationStep` records each status and start time. The complete `SpeechPreparationState` retains these steps after cancellation or failure. The collapsed UI shows the current operation; expanding lists all steps, with byte progress or elapsed time only for the running step. Closing an observer never cancels preparation. Verified SenseVoice files survive retries and idle worker reclamation. The Apple Native provider registers only on macOS when its executable exists; it uses the browser WAV through a private temporary file and advertises configured locale hints without SenseVoice preparation. Apple's runtime may install its own language assets on first use.
 
 Failed preparation can include `SpeechDownloadFailure` with the asset, source origin, classified reason and optional diagnostic code or HTTP status. The Client localizes recovery advice; raw download causes remain on the Host.
 

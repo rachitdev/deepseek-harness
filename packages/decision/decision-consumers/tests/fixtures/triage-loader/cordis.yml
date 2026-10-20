@@ -1,0 +1,53 @@
+# Real Loader composition proving enforced turn triage routes a turn's model
+# request to the tier the decision provider chose, and records it durably.
+- id: llm
+  name: '@deepseek-ai/dsh-llm'
+
+- id: sessions
+  name: '@deepseek-ai/dsh-session'
+
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+
+- id: agents
+  name: '@deepseek-ai/dsh-agent'
+
+- id: decision
+  name: '@deepseek-ai/dsh-decision'
+
+- id: decision-consumers
+  name: '@deepseek-ai/dsh-decision-consumers'
+  config:
+    turnTriage:
+      enabled: true
+      mode: enforce
+      fallbackTier: standard
+      minConfidence: 0.5
+      timeoutMs: 2000
+      tiers:
+        - name: fast
+          description: Quick lookups and short factual answers
+          provider: fixture
+          model: fast-model
+        - name: standard
+          description: Routine edits and ordinary coding
+          provider: fixture
+          model: standard-model
+        - name: frontier
+          description: Architecture, multi-file refactors, and hard debugging
+          provider: fixture
+          model: frontier-model
+
+- id: triage-fixture-runtime
+  name: ./fixture-runtime.ts
+
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
+  config:
+    agents: []

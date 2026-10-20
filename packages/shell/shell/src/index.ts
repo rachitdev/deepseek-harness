@@ -7,7 +7,7 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import type { ShellExecRequest, ShellExecSpec, ShellExecution } from './types.ts'
+import type { ShellExecRequest, ShellExecSpec, ShellExecution, ShellRunResult } from './types.ts'
 
 export { DSH_ENV_PREFIX } from './types.ts'
 export type {
@@ -91,6 +91,17 @@ export abstract class ShellExecutor extends Service {
    * @throws on preparation failure or caller cancellation before process publication.
    */
   abstract execute(spec: ShellExecSpec): Promise<ShellExecution>
+
+  /**
+   * Run a resolved spec to completion and return its settled foreground result.
+   * Preserved for backward compatibility with 0.1.x plugins.
+   * @param spec - a resolved spec from {@link resolve}.
+   * @returns the settled foreground result.
+   */
+  async run(spec: ShellExecSpec): Promise<ShellRunResult> {
+    const execution = await this.execute(spec)
+    return execution.result()
+  }
 }
 
 export default ShellExecutor

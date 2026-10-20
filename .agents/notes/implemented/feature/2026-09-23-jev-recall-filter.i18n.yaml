@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-23-jev-recall-filter.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-23-jev-recall-filter.md
+/agent-note-jev-recall-filter-relevance-and-stored-injection-screening-of-memory-recall:
+  en: 58f316a1e59ddde7
+  zh: f6b9e5649d7f8e90
+/agent-note-jev-recall-filter-relevance-and-stored-injection-screening-of-memory-recall/problem:
+  en: 4b38523054d1a922
+  zh: 90eecc20db8f01e5
+/agent-note-jev-recall-filter-relevance-and-stored-injection-screening-of-memory-recall/decision:
+  en: 507a9e30b8b9ea3c
+  zh: eca41212d549f6bc
+/agent-note-jev-recall-filter-relevance-and-stored-injection-screening-of-memory-recall/alternatives-considered:
+  en: e32a4b143fda120a
+  zh: 5d3e840a08c2945c
+/agent-note-jev-recall-filter-relevance-and-stored-injection-screening-of-memory-recall/consequences:
+  en: 17f02d37100862c7
+  zh: 0e5032c050004f15
+/agent-note-jev-recall-filter-relevance-and-stored-injection-screening-of-memory-recall/verification:
+  en: 70b6b3a9016457ab
+  zh: d839b5330901796b

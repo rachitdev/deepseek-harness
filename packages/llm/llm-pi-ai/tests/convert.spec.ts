@@ -936,6 +936,10 @@ describe('mapStopReason / mapUsage', () => {
     }))).toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
     expect(mapStopReason(assistant({
       stopReason: 'error',
+      errorMessage: 'OpenAI API error (400): {"message":"Model \'claude-opus-5-5\' is not available in the active live catalog for provider \'claude\'.","type":"invalid_request_error","code":"bad_request"}',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'MODEL_UNAVAILABLE' } })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
       errorMessage: 'HTTP 400: invalid input: temperature exceeds maximum allowed value',
     }))).toMatchObject({ kind: 'error', failure: { code: 'INVALID_REQUEST' } })
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 413: Payload Too Large' })))

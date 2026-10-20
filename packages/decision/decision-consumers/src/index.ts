@@ -1,5 +1,5 @@
 /**
- * `@deepseek-ai/dsh-decision-consumers`: suite of 14 specialized consumers built on `ctx.decision`:
+ * `@deepseek-ai/dsh-decision-consumers`: suite of 16 specialized consumers built on `ctx.decision`:
  * 1. `decideEgoStep`: ego-browser navigation stepping with calibrated confidence gating
  * 2. `assessToolRisk`: pre-approval tool call risk scoring and permission gating
  * 3. `routeTurnModel`: turn-level complexity routing between fast and frontier model tiers
@@ -14,6 +14,8 @@
  * 12. `assessInstructionDrift`: advisory judgement that work diverged from repository instructions
  * 13. `decideBrowserAction`: dynamic browser operation/target selection in one speculative request
  * 14. live recall filter: relevance and stored-injection screening of plugin-injected memory recall
+ * 15. `cascadeSkillSelection`: two-stage category-then-skill selection for progressive disclosure
+ * 16. live turn triage: per-turn model tier selection before generation, advisory or enforced
  * @module @deepseek-ai/dsh-decision-consumers
  */
 
@@ -21,6 +23,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { installModelFailover, ModelFailoverConfig } from './model-failover.ts'
 import { installRecallFilter, RecallFilterConfig } from './recall-filter.ts'
+import { installTurnTriage, TurnTriageConfig } from './turn-triage.ts'
 
 export * from './types.ts'
 export { decideEgoStep, DEFAULT_EGO_CONFIDENCE_THRESHOLD } from './ego-driver.ts'
@@ -46,6 +49,10 @@ export type {
   SkillAdjudicationOptions,
   SkillAdjudicationRequest,
 } from './skill-adjudicator.ts'
+export { cascadeSkillSelection } from './skill-cascade.ts'
+export { installTurnTriage, triageTurn, TurnTriageConfig } from './turn-triage.ts'
+export type { TurnTriage, TurnTriagePolicy, TurnTriageQuery, TurnTriageTier } from './turn-triage.ts'
+export type { SkillCascade, SkillCascadeCategory, SkillCascadeRequest } from './skill-cascade.ts'
 export { guardFetchedContent } from './fetch-guardrail.ts'
 export type { FetchGuardrailOptions } from './fetch-guardrail.ts'
 export { assessInstructionDrift } from './instruction-drift.ts'
@@ -85,6 +92,8 @@ export interface Config {
   readonly failover?: ModelFailoverConfig
   /** Optional screening of plugin-injected memory recall. */
   readonly recallFilter?: RecallFilterConfig
+  /** Optional per-turn model tier triage before generation. */
+  readonly turnTriage?: TurnTriageConfig
 }
 
 /** Runtime schema for decision-consumer configuration. */
@@ -92,14 +101,16 @@ export const Config: z<Config> = z.object({
   egoConfidenceThreshold: z.number().min(0).max(1).default(0.7),
   failover: ModelFailoverConfig,
   recallFilter: RecallFilterConfig,
+  turnTriage: TurnTriageConfig,
 })
 
 /**
  * Register configured live consumers for this context.
  * @param ctx - Plugin context carrying decision, LLM, and Agent services.
- * @param config - Consumer defaults, optional live failover policy, and optional recall filtering.
+ * @param config - Consumer defaults, optional live failover policy, recall filtering, and turn triage.
  */
 export function apply(ctx: Context, config: Config = {}): void {
   if (config.failover !== undefined) installModelFailover(ctx, config.failover)
   if (config.recallFilter?.enabled === true) installRecallFilter(ctx, config.recallFilter)
+  if (config.turnTriage?.enabled === true) installTurnTriage(ctx, config.turnTriage)
 }

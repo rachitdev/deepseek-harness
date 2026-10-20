@@ -8,10 +8,11 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
-import { createUserMessage, type Message, type UserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
 import z from '@deepseek-ai/schemastery'
 import { parseRecallBlock, renderRecallBlock, type ParsedRecallBlock, type RecallItemRendering } from './recall-block.ts'
 import { screenRecallItems } from './recall-screen.ts'
+import { previousReplyText, requestText } from './turn-text.ts'
 import type { RecallItemJudgement } from './types.ts'
 
 /** Live recall-filter policy. */
@@ -84,26 +85,6 @@ interface RecallScreenCounts {
 function soleText(message: UserMessage): string | undefined {
   const [block, ...rest] = message.content
   return block?.type === 'text' && rest.length === 0 ? block.text : undefined
-}
-
-function textOf(content: Message['content']): string {
-  return content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n\n')
-}
-
-function previousReplyText(agent: Agent, maxChars: number): string {
-  if (maxChars === 0) return ''
-  const reply = agent.session.deriveMessages().findLast(message => message.role === 'assistant')
-  return reply === undefined ? '' : textOf(reply.content).trim().slice(-maxChars)
-}
-
-function requestText(messages: readonly UserMessage[], maxChars: number): string {
-  return messages
-    .filter(message => message.source.kind === 'user')
-    .map(message => textOf(message.content))
-    .filter(text => text.length > 0)
-    .join('\n\n')
-    .trim()
-    .slice(0, maxChars)
 }
 
 function renderingFor(

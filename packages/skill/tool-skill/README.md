@@ -47,6 +47,10 @@ Load the plugin together with the skill registry and at least one provider. Conf
 |---|---|---|
 | `catalogDescriptionMaxLength` | `500` | Maximum normalized description length rendered in the session catalog; minimum 3 |
 | `pinnedSkills` | `['dsh-design-thinking-general']` | Skill names whose full instructions join every assembled system prompt; invalid names fail at load, and a name that is absent, unloadable, or not model-invocable is skipped per assembly. An empty array disables pinned injection. |
+| `skillCascade.enabled` | `false` | Run the advisory two-stage skill cascade; requires a mounted decision service |
+| `skillCascade.categories` | `[]` | Ordered `{ name, description, skills }` stage-one categories; duplicate names and invalid skill names fail at load |
+| `skillCascade.ungroupedName` / `ungroupedDescription` | `other` / `Skills outside every other category.` | Category holding every live skill no configured category lists |
+| `skillCascade.maxTaskChars` / `timeoutMs` | `4000` / `10000` | User-text bound and the deadline covering catalog read plus both decision calls |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-skill) is the exhaustive source for every accepted field.
 
@@ -56,6 +60,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 - **A loader tool.** The model calls `skill` with the exact skill name and receives the full instruction body plus resource guidance in a canonical `<skill_content>` block; the result is retained as ordinary tool history.
 - **Explicit user invocation.** A `/name` token in direct user input that names a user-invocable skill injects that skill's instructions into the step, without the model having to load it.
 - **Pinned instructions.** Configured `pinnedSkills` bodies join the assembled system prompt of every step, so their instructions are present before the first token regardless of topic, without routing, a tool call, or a gesture.
+- **Nothing from the advisory cascade.** With `skillCascade.enabled`, the first step of each user turn starts a background decision cascade — category first, then the exact skill inside it — and a later `skill` call logs whether the model's choice agreed. Step messages, tool results, and the session log are unchanged.
 - **Live catalog updates.** Later membership, description, or visibility changes append a complete replacement catalog; removing every skill appends an empty catalog that retires older names.
 
 ### Observable success and failures
@@ -81,6 +86,7 @@ The package is built on two ideas. First, the catalog is a durable projection, d
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: tool registration, catalog and gesture pre-step listeners, pinned system-prompt injection, rendering and digest |
+| [`src/cascade-advisor.ts`](src/cascade-advisor.ts) | Advisory cascade: catalog grouping, one background cascade per agent turn, agreement logging |
 
 ### Catalog lifecycle
 
@@ -93,6 +99,10 @@ The `/name` gesture listener scans only claimed user messages: a whitespace-boun
 ### Pinned prompt injection
 
 Section text providers are synchronous while skill bodies load asynchronously, so pinned skills join through the `system-prompt/assemble` waterfall: after `next()` produces the registry-built sections, each configured name is loaded with the calling agent's cwd and scope and appended as a `skill:pinned:<name>` section rendered through the shared `renderSkillContent`. Appending at the end places the instruction material after the deployment's identity and policies, closest to the conversation. A name that resolves to nothing, fails to load, or is not model-invocable is skipped for that assembly, so a broken pinned skill degrades to catalog-only routing instead of failing every model step; a scope with an effective complete prompt section (the web runtime) discards the contribution with the rest of the assembly's sections.
+
+### Advisory skill cascade
+
+The cascade listener runs after the catalog is resolved, only when the calling agent sees this plugin's exact `skill` tool and the step carries direct user text. It keys one pending cascade per Agent and turn, so later steps of the same turn reuse it, and drops the entry on `agent/disposed`. The grouped catalog assigns a skill named by several categories to its first category and puts every unlisted live skill in the ungrouped category; stage one judges category plus `needs_skill`, and stage two sees only the winning category's skills ([`cascadeSkillSelection`](../../decision/decision-consumers/README.md#the-sixteen-consumers)). A `skill` call starts the comparison without waiting for it, so the load is never delayed; the agreement line is logged when the cascade settles, and a cascade failure only logs a warning. The listener adds no session event because nothing it computes reaches a model request.
 
 </details>
 
@@ -267,6 +277,7 @@ These limits define when the catalog or the loader is a poor fit. They are curre
 - **Loading is one-shot text** — there is no partial, streaming, or cached-content handle when a remote provider is slow or a skill body is large.
 - **Catalog replacement is whole-list** — one changed name or description appends every visible summary; this keeps stale-name retirement explicit but costs tokens proportional to the catalog.
 - **Bodies are not versioned** — body-only edits do not change the catalog digest or notify the model; a later tool call reads the current provider content while earlier tool results remain historical facts.
+- **The skill cascade is advisory only** — it logs a category and skill per turn and agreement with the model's `skill` call, but does not yet shrink the published catalog or load a skill. Enforcing it needs a logged per-turn catalog subset, which would replace the whole-list catalog message on category changes and cost prefix-cache reuse; that is deferred until the logged agreement rate justifies it.
 - **Pinned bodies ride every conversation regardless of topic** — each `pinnedSkills` entry costs one rendered body per request for every agent of the deployment; a deployment that only sometimes needs the pinned skill should keep it out of the list and rely on catalog routing instead.
 
 <a id="dev-note"></a>

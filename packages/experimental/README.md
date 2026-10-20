@@ -56,6 +56,7 @@ Promotion requires a named product role, documented public behavior and limitati
 | [`cot-translation-bundle`](cot-translation-bundle/README.md) | Default-disabled reasoning translation composition | — |
 | [`speech-to-text`](speech-to-text/README.md) | Named speech recognition providers | `ctx.speechToText` |
 | [`speech-to-text-sensevoice`](speech-to-text-sensevoice/README.md) | Managed local SenseVoice inference | — |
+| [`speech-to-text-apple-native`](speech-to-text-apple-native/README.md) | macOS on-device Apple speech recognition through local MCP | — |
 | [`api-speech-to-text`](api-speech-to-text/README.md) | Authenticated transient transcription Remote | `ctx.speechController` |
 | [`client-ui-voice-input`](client-ui-voice-input/README.md) | Microphone capture and guarded draft insertion | — |
 | [`plugin-market-bundle`](plugin-market-bundle/README.md) | Default-disabled optional custom plugin markets: the market service and the Discover tab | — |

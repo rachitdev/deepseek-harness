@@ -1,0 +1,35 @@
+{
+  "name": "@deepseek-ai/dsh-experimental-speech-to-text-apple-native",
+  "description": "Local macOS Apple SpeechAnalyzer provider for optional voice input",
+  "version": "0.2.1-alpha.1",
+  "publishConfig": { "access": "public" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/experimental/speech-to-text-apple-native"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": ["lib/index.js", "lib/types/**/*.d.ts"],
+  "license": "MIT",
+  "dependencies": {
+    "@deepseek-ai/schemastery": "workspace:~",
+    "@modelcontextprotocol/client": "2.0.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-experimental-speech-to-text": "workspace:*",
+    "@deepseek-ai/dsh-subprocess": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-experimental-speech-to-text": "workspace:*",
+    "@deepseek-ai/dsh-subprocess": "workspace:*"
+  }
+}

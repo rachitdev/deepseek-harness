@@ -21,11 +21,11 @@
   en: b7d33bd969826ee3
   zh: 4e155a0f14b41541
 /deepseek-ai-dsh-tool-skill/use-this-package/mount-and-configure:
-  en: 3c21f021f3a63a64
-  zh: 14033b84257c51b5
+  en: e0098134cd571854
+  zh: f254947d04c0455a
 /deepseek-ai-dsh-tool-skill/use-this-package/what-the-model-gets:
-  en: 90065ca047e7dcb9
-  zh: 1f33a8ea42988b19
+  en: 7850b402b0287a21
+  zh: 86067c0663ed7f6b
 /deepseek-ai-dsh-tool-skill/use-this-package/observable-success-and-failures:
   en: 813f1a7ab04d283e
   zh: 4adfcffcbb131d54
@@ -36,8 +36,8 @@
   en: ee4380c98437d699
   zh: 25f35ec8c8c47c00
 /deepseek-ai-dsh-tool-skill/understand-the-implementation/source-map:
-  en: 95b63470f13fed8c
-  zh: 6ce6c6a737c2a9ee
+  en: c51429a0ede1ca7e
+  zh: 1039011789019fa0
 /deepseek-ai-dsh-tool-skill/understand-the-implementation/catalog-lifecycle:
   en: 847745cf78860904
   zh: 55137ebef224ad48
@@ -45,8 +45,11 @@
   en: 7d9f6fa9f17b965e
   zh: 4f1ec493df8d0773
 /deepseek-ai-dsh-tool-skill/understand-the-implementation/pinned-prompt-injection:
-  en: 990d0030a335b9ba
-  zh: d98ed56d6fb39023
+  en: f5c9d29c376010b1
+  zh: b7d8ae3b0700bf68
+/deepseek-ai-dsh-tool-skill/understand-the-implementation/advisory-skill-cascade:
+  en: c2782d5ea0caaf04
+  zh: c08b5bf517233571
 /deepseek-ai-dsh-tool-skill/further-exploration:
   en: c4797732cde7d1f5
   zh: daabfd858cceb271
@@ -144,8 +147,8 @@
   en: ec91fcbcafd5a019
   zh: 12fac93020d4e34c
 /deepseek-ai-dsh-tool-skill/known-limitations-and-deferred-work:
-  en: fa8700323463115e
-  zh: 88ff2393d7ac62b1
+  en: 225558c057d5f756
+  zh: 38c00fce845671fd
 /deepseek-ai-dsh-tool-skill/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

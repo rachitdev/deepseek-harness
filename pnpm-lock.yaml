@@ -2276,6 +2276,9 @@ importers:
       '@deepseek-ai/dsh-decision-laya':
         specifier: workspace:*
         version: link:../../decision/decision-laya
+      '@deepseek-ai/dsh-decision-llm':
+        specifier: workspace:*
+        version: link:../../decision/decision-llm
       '@deepseek-ai/dsh-deepseek-account-platform':
         specifier: workspace:*
         version: link:../../credentials/deepseek-account-platform
@@ -9233,6 +9236,25 @@ importers:
         specifier: workspace:*
         version: link:../../settings/settings
 
+  packages/experimental/speech-to-text-apple-native:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      '@modelcontextprotocol/client':
+        specifier: 2.0.0
+        version: 2.0.0
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-experimental-speech-to-text':
+        specifier: workspace:*
+        version: link:../speech-to-text
+      '@deepseek-ai/dsh-subprocess':
+        specifier: workspace:*
+        version: link:../../subprocess/subprocess
+
   packages/experimental/speech-to-text-sensevoice:
     dependencies:
       '@deepseek-ai/dsh-timeout':
@@ -9645,6 +9667,9 @@ importers:
       '@deepseek-ai/dsh-experimental-speech-to-text':
         specifier: workspace:*
         version: link:../speech-to-text
+      '@deepseek-ai/dsh-experimental-speech-to-text-apple-native':
+        specifier: workspace:*
+        version: link:../speech-to-text-apple-native
       '@deepseek-ai/dsh-experimental-speech-to-text-sensevoice':
         specifier: workspace:*
         version: link:../speech-to-text-sensevoice

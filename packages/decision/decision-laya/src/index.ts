@@ -8,6 +8,7 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import z from '@deepseek-ai/schemastery'
@@ -35,6 +36,10 @@ export {
   LAYA_PROVIDER_ID,
   LayaDecisionProvider,
   fromLayaAnswer,
+  hasCachedModel,
+  isExecutableAvailable,
+  isLoopbackBaseURL,
+  isLoopbackHost,
   toLayaQuestion,
 } from './provider.ts'
 export type { LayaDecisionProviderOptions } from './types.ts'
@@ -48,6 +53,10 @@ export const inject = ['decision']
 /** Host-local installation paths used when the profile does not override them. */
 const DEFAULT_PYTHON_ENV = join(homedir(), '.dsh', 'laya-env', 'bin', 'python')
 const DEFAULT_BIN_WORKER = join(homedir(), '.dsh', 'bin', 'laya-worker.py')
+
+/** Default Hugging Face cache root where checkpoints reside. */
+export const DEFAULT_HUB_CACHE_DIR = process.env.HF_HUB_CACHE
+  ?? join(process.env.HF_HOME ?? join(homedir(), '.cache', 'huggingface'), 'hub')
 
 /** Plugin configuration schema. */
 export interface Config {
@@ -73,6 +82,10 @@ export interface Config {
   model?: string
   /** Checkpoint subfolder within the HuggingFace repository. */
   modelSubfolder?: string
+  /** Hugging Face hub cache directory where the checkpoint is stored. */
+  hubCacheDir?: string
+  /** Explicit availability override. */
+  available?: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -87,6 +100,8 @@ export const Config: z<Config> = z.object({
   baseURL: z.string(),
   model: z.string().default(LAYA_DEFAULT_MODEL),
   modelSubfolder: z.string().default(LAYA_DEFAULT_MODEL_SUBFOLDER),
+  hubCacheDir: z.string(),
+  available: z.boolean(),
 })
 
 /**
@@ -113,9 +128,33 @@ export function apply(ctx: Context, config: Config = {}): void {
     ?? env.get('DSH_LAYA_PYTHON')?.value
     ?? (existsSync(DEFAULT_PYTHON_ENV) ? DEFAULT_PYTHON_ENV : 'python3')
 
+  const bundledWorker = fileURLToPath(new URL('worker.py', import.meta.url))
+  const defaultWorker = existsSync(DEFAULT_BIN_WORKER)
+    ? DEFAULT_BIN_WORKER
+    : existsSync(bundledWorker)
+      ? bundledWorker
+      : DEFAULT_BIN_WORKER
+
   const workerScriptPath = config.workerScriptPath
     ?? env.get('DSH_LAYA_WORKER_PATH')?.value
-    ?? DEFAULT_BIN_WORKER
+    ?? defaultWorker
+
+  const hfHome = env.get('HF_HOME')?.value
+  const hubCacheDir = config.hubCacheDir
+    ?? env.get('DSH_LAYA_HUB_CACHE')?.value
+    ?? env.get('HF_HUB_CACHE')?.value
+    ?? (hfHome ? join(hfHome, 'hub') : undefined)
+    ?? DEFAULT_HUB_CACHE_DIR
+
+  const availableEnv = env.get('DSH_LAYA_AVAILABLE')?.value.toLowerCase()
+  const configAvailable = config.available
+  const available = configAvailable !== undefined
+    ? () => configAvailable
+    : availableEnv === '1' || availableEnv === 'true'
+      ? () => true
+      : availableEnv === '0' || availableEnv === 'false'
+        ? () => false
+        : undefined
 
   const provider = new LayaDecisionProvider({
     pythonPath,
@@ -129,6 +168,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     baseURL,
     model,
     modelSubfolder,
+    hubCacheDir,
+    ...available !== undefined ? { available } : {},
   })
 
   ctx.effect(() => ctx.decision.registerProvider(provider))

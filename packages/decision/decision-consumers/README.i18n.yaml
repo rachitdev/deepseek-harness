@@ -3,29 +3,32 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/decision/decision-consumers/README.md
 /:
-  en: cf8a8ef4df616ab4
-  zh: 02160f72d77de2ce
+  en: a8aa5e2c25c3138d
+  zh: e12bb3651395b2d6
 /deepseek-ai-dsh-decision-consumers:
   en: 599cdbb5a473b92c
   zh: fcc0c018577f6fe8
 /deepseek-ai-dsh-decision-consumers/summary:
-  en: 8b032cdff2d3de8f
-  zh: be91e34a6c3a3a9b
+  en: 1aad89cc3adc1c81
+  zh: 19a9da2096a9c0be
 /deepseek-ai-dsh-decision-consumers/table-of-contents:
-  en: 280a9fb676cf5705
-  zh: 261ae3e78c5edcb1
+  en: 7236fde8055a58cb
+  zh: b07266fb7107ae8d
 /deepseek-ai-dsh-decision-consumers/use-this-package:
-  en: fecac92cb11e9640
-  zh: 52c550a8307fa197
-/deepseek-ai-dsh-decision-consumers/the-fourteen-consumers:
-  en: ada755399ab0615b
-  zh: e3e04905f00c469a
+  en: 42890f653a90e3ef
+  zh: 726b07a61286d713
+/deepseek-ai-dsh-decision-consumers/the-sixteen-consumers:
+  en: 84b89112a1e1a4b7
+  zh: cef4df35fd4546aa
 /deepseek-ai-dsh-decision-consumers/live-model-failover:
   en: d034713086897f58
   zh: f80498ecbc86a8e8
 /deepseek-ai-dsh-decision-consumers/live-recall-filter:
-  en: 88cea55e591fb6a6
-  zh: ebc1e34670f004ae
+  en: b20527b69cad895f
+  zh: a4898f270061ea93
+/deepseek-ai-dsh-decision-consumers/live-turn-triage:
+  en: 6b842fe6da6f1f54
+  zh: f360b1f2ba171bae
 /deepseek-ai-dsh-decision-consumers/understand-the-implementation:
   en: 3fd906195905f163
   zh: b3f451a945e82a13
@@ -49,7 +52,19 @@
   zh: 5170c0e842019896
 /deepseek-ai-dsh-decision-consumers/model-experience/filtered-recall-message/kv-cache-effect:
   en: a3e819684b42bc80
-  zh: af321e9b0aeea6f4
+  zh: b83dd5e939cab0a6
+/deepseek-ai-dsh-decision-consumers/model-experience/triaged-model-route:
+  en: 2ef025189b1a1f99
+  zh: a6c2caa4294a612e
+/deepseek-ai-dsh-decision-consumers/model-experience/triaged-model-route/what-the-model-sees:
+  en: 77c0580a1bf9d008
+  zh: 7837a03538e23b40
+/deepseek-ai-dsh-decision-consumers/model-experience/triaged-model-route/token-effect:
+  en: dfcef0924c4af545
+  zh: 2d0fa33d190327b9
+/deepseek-ai-dsh-decision-consumers/model-experience/triaged-model-route/kv-cache-effect:
+  en: a5433114f9137636
+  zh: 977c479fe7e452c7
 /deepseek-ai-dsh-decision-consumers/known-limitations-and-deferred-work:
-  en: 5b163313ef563603
-  zh: 8615e5e4602581c1
+  en: 28d54a60e5ed45f7
+  zh: af7125c675e247c9

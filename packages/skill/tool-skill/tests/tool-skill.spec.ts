@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { provideWorkingDirectoryFixture, unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -914,6 +914,148 @@ describe('dsh-tool-skill', () => {
     expect(call).toBe(2)
   })
 
+  describe('advisory skill cascade', () => {
+    const categories = [
+      { name: 'security', description: 'Security audits and pentests.', skills: ['strix-pentest', 'code-audit', 'missing-skill'] },
+      { name: 'design', description: 'Diagrams.', skills: ['diagram-design'] },
+    ]
+    const register = (ctx: Context): void => {
+      for (const skill of [
+        { name: 'strix-pentest', description: 'Run a pentest.', content: 'PENTEST' },
+        { name: 'code-audit', description: 'Audit source code.', content: 'AUDIT' },
+        { name: 'diagram-design', description: 'Render an SVG diagram.', content: 'DIAGRAM' },
+        { name: 'notes', description: 'Take notes.', content: 'NOTES' },
+      ]) ctx.skills.register({ ...skill, source: 'runtime', provider: 'runtime' })
+    }
+    const answers = (request: DecisionRequest): Promise<DecisionResult> => Promise.resolve('category' in request.questions
+      ? {
+        providerId: 'test-decision',
+        answers: {
+          category: { type: 'choice', choice: 'security', probabilities: { security: 0.9, design: 0.05, other: 0.05 } },
+          needs_skill: { type: 'boolean', probability: 0.85 },
+        },
+      }
+      : {
+        providerId: 'test-decision',
+        answers: { skill: { type: 'choice', choice: 'code-audit', probabilities: { 'strix-pentest': 0.2, 'code-audit': 0.8 } } },
+      })
+    const userTurn = (text: string): UserMessage[] => [createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })]
+
+    it('runs category then in-category skill in the background without changing step messages', async () => {
+      const home = await tempDir('tool-cascade')
+      const requests: DecisionRequest[] = []
+      const ctx = await setup(home, { skillCascade: { enabled: true, categories } }, (request) => {
+        requests.push(request)
+        return answers(request)
+      })
+      register(ctx)
+      const infos: unknown[][] = []
+      ctx.logger.info = (...args: unknown[]) => { infos.push(args) }
+      const agent = agentForCwd(home)
+      const messages = userTurn('Audit this code for SQL injection.')
+
+      const withCascade = await proposeStep(ctx, agent, messages)
+      const plainCtx = await setup(await tempDir('tool-cascade-off'))
+      register(plainCtx)
+      const plain = await proposeStep(plainCtx, agentForCwd(home), messages)
+      const texts = (decision: PreStepDecision): unknown => decision.kind === 'enter' && decision.messages.map(message => message.content)
+      expect(texts(withCascade)).toEqual(texts(plain))
+
+      const result = await ctx.agents.withInitiator(agent, () => ctx.tools.execute({
+        signal: testToolSignal,
+        callId: ToolCallId('cascade-agree'),
+        name: 'skill',
+        arguments: { name: 'code-audit' },
+        agent,
+      }))
+
+      expect(result.isError).toBe(false)
+      const text = result.content[0]
+      if (text?.type !== 'text') throw new Error('expected text tool result')
+      expect(text.text).toContain('AUDIT')
+      expect(requests).toHaveLength(2)
+      expect(requests[0]!.questions['category']).toMatchObject({
+        criteria: { security: 'Security audits and pentests.', design: 'Diagrams.', other: 'Skills outside every other category.' },
+      })
+      expect(requests[1]!.questions['skill']).toMatchObject({
+        criteria: { 'strix-pentest': 'Run a pentest.', 'code-audit': 'Audit source code.' },
+      })
+      await vi.waitFor(() => { expect(infos.map(args => String(args[0]))).toContain('skill cascade (advisory): agent %s model loaded %s; cascade chose %s/%s (%s)') })
+      expect(infos.find(args => String(args[0]).includes('model loaded'))?.slice(-1)).toEqual(['agree'])
+    })
+
+    it('starts one cascade per turn and ignores steps without user text', async () => {
+      const home = await tempDir('tool-cascade-once')
+      const evaluate = vi.fn(answers)
+      const ctx = await setup(home, { skillCascade: { enabled: true, categories } }, evaluate)
+      register(ctx)
+      const agent = agentForCwd(home)
+      await proposeStep(ctx, agent, [])
+      await proposeStep(ctx, agent, userTurn('Pentest staging.'))
+      await proposeStep(ctx, agent, userTurn('Pentest staging again.'))
+      await ctx.agents.withInitiator(agent, () => ctx.tools.execute({
+        signal: testToolSignal, callId: ToolCallId('cascade-once'), name: 'skill', arguments: { name: 'notes' }, agent,
+      }))
+      expect(evaluate).toHaveBeenCalledTimes(2)
+    })
+
+    it('skips agents without the shipped skill tool, rejected steps, and disposed agents', async () => {
+      const home = await tempDir('tool-cascade-skip')
+      const evaluate = vi.fn(answers)
+      const ctx = await setup(home, { skillCascade: { enabled: true, categories } }, evaluate)
+      register(ctx)
+      const restricted = sessionAgent(Session.create(SessionId('cascade-restricted')), 'cascade-restricted')
+      const { scope } = await mintAgentScope(ctx, restricted)
+      scope.ctx.tools.restrict({ deny: ['skill'] })
+      await proposeStep(ctx, restricted, userTurn('Pentest staging.'))
+      await scope.dispose()
+
+      const agent = agentForCwd(home)
+      const rejected = await agentEvents(ctx, agent).waterfall(
+        'agent/pre-step',
+        { messages: userTurn('Pentest staging.'), turn: 1, step: 1, signal: new AbortController().signal },
+        () => Promise.resolve({ kind: 'reject' as const }),
+      )
+      expect(rejected.kind).toBe('reject')
+      expect(evaluate).not.toHaveBeenCalled()
+
+      await proposeStep(ctx, agent, userTurn('Pentest staging.'))
+      agentEvents(ctx, agent).emit('agent/disposed', { agent })
+      const infos: unknown[][] = []
+      ctx.logger.info = (...args: unknown[]) => { infos.push(args) }
+      await ctx.agents.withInitiator(agent, () => ctx.tools.execute({
+        signal: testToolSignal, callId: ToolCallId('cascade-disposed'), name: 'skill', arguments: { name: 'notes' }, agent,
+      }))
+      expect(infos.some(args => String(args[0]).includes('model loaded'))).toBe(false)
+    })
+
+    it('leaves the model-selected skill intact when the cascade fails', async () => {
+      const home = await tempDir('tool-cascade-fail')
+      const ctx = await setup(home, { skillCascade: { enabled: true, categories } }, () => Promise.reject(new Error('decision unavailable')))
+      register(ctx)
+      const warnings: unknown[][] = []
+      ctx.logger.warn = (...args: unknown[]) => { warnings.push(args) }
+      const agent = agentForCwd(home)
+      await proposeStep(ctx, agent, userTurn('Draw a diagram.'))
+      const result = await ctx.agents.withInitiator(agent, () => ctx.tools.execute({
+        signal: testToolSignal, callId: ToolCallId('cascade-fail'), name: 'skill', arguments: { name: 'diagram-design' }, agent,
+      }))
+      expect(result.isError).toBe(false)
+      await vi.waitFor(() => { expect(warnings.map(args => String(args[0]))).toContain('skill cascade (advisory): agent %s turn %d failed: %o') })
+    })
+
+    it('fails loud on misconfiguration', async () => {
+      const home = await tempDir('tool-cascade-config')
+      await expect(setup(home, { skillCascade: { enabled: true } })).rejects.toThrow('skillCascade requires a mounted decision service')
+      await expect(setup(home, { skillCascade: { enabled: true, categories: [categories[0]!, categories[0]!] } }, answers))
+        .rejects.toThrow('category "security" is duplicated')
+      await expect(setup(home, { skillCascade: { enabled: true, categories: [{ name: 'other', description: 'x', skills: [] }] } }, answers))
+        .rejects.toThrow('category "other" is duplicated')
+      await expect(setup(home, { skillCascade: { enabled: true, categories: [{ name: 'bad', description: 'x', skills: ['Not A Name'] }] } }, answers))
+        .rejects.toThrow('invalid skill name "Not A Name"')
+    })
+  })
+
   it('preserves the model-selected skill when JEV adjudication fails', async () => {
     const home = await tempDir('tool-jev-fallback')
     const ctx = await setup(home, { skillAdjudication: true }, () => Promise.reject(new Error('decision unavailable')))
@@ -1251,6 +1393,17 @@ describe('pinned system-prompt injection', () => {
     // the conversation, exactly where the invocation injection lands in a step.
     expect(lastName).toBe(`skill:pinned:${PINNED}`)
     expect(rendered).toContain('Route every open-ended ask through the intake gate.')
+  })
+
+  it('pins a skill once when two tool-skill instances serve the same agent', async () => {
+    const { ctx, agent } = await pinHarness()
+    // A preset row and a profile row both mount the plugin, each hooking the same assembly; the
+    // second instance lives in an isolated tool scope, as an agent-preset composition does.
+    const nested = ctx.isolate('tools')
+    await nested.plugin(ToolRuntime)
+    await nested.plugin(toolSkill, {})
+    const assembly = await ctx.systemPrompt.assemble({ agent, scope: agent })
+    expect(assembly.sections.filter(entry => entry.name === `skill:pinned:${PINNED}`)).toHaveLength(1)
   })
 
   it('resolves pinned bodies with the agent cwd, so a project copy wins', async () => {

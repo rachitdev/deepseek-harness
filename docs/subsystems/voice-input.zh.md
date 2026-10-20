@@ -2,13 +2,13 @@
 
 [English](voice-input.md) | 中文
 
-实验性语音识别包含三个角色：[服务定义](../../packages/experimental/speech-to-text/README.zh.md)路由具名 Provider，[SenseVoice Provider](../../packages/experimental/speech-to-text-sensevoice/README.zh.md)拥有本地推理，[Remote 消费者](../../packages/experimental/api-speech-to-text/README.zh.md)服务浏览器。[可选 Bundle](../../packages/experimental/voice-input-bundle/README.zh.md)将它们与麦克风 UI 组合。
+实验性语音识别包含三个角色：[服务定义](../../packages/experimental/speech-to-text/README.zh.md)路由具名 Provider，[SenseVoice Provider](../../packages/experimental/speech-to-text-sensevoice/README.zh.md)与可选的 [Apple Native Provider](../../packages/experimental/speech-to-text-apple-native/README.zh.md)负责本地推理，[Remote 消费者](../../packages/experimental/api-speech-to-text/README.zh.md)服务浏览器。[可选 Bundle](../../packages/experimental/voice-input-bundle/README.zh.md)将它们与麦克风 UI 组合。
 
 ## Provider 选择
 
 `SpeechProviderId` 为注册标识添加类型品牌。`SpeechProviderInfo` 携带显示名称、支持的 `languages` 语言提示及 `host-local` 或 `cloud` 处理位置。`SpeechRequest` 包含 WAV 字节和可选的 Provider、语言选择；`resolve()` 生成捕获一个 Provider 实例的 `SpeechSpec`。缺失的 Provider 或不支持的语言会报错；替换或撤销会使已解析的任务失效。音频不会回退到其他 Provider。
 
-`SpeechProvider.transcribe()` 接收完整的 `SpeechInput` 与 `AbortSignal`。`Transcript` 返回纯文本 `text`、`audioSeconds` 和 `inferenceSeconds`。Provider 响应取消，并在注销完成前结束其任务。本地 Provider 串行执行调用、限制队列，并独立于 Session 管理工作进程生命周期。
+`SpeechProvider.transcribe()` 接收完整的 `SpeechInput` 与 `AbortSignal`。`Transcript` 返回纯文本 `text`、`audioSeconds` 和 `inferenceSeconds`。Provider 响应取消，并在注销完成前结束其任务。SenseVoice 串行执行调用并限制工作进程队列；Apple Native 为每次录音启动一个本地 MCP 进程。两者均独立于 Session 管理任务。
 
 ## 浏览器与 Host 所有权
 
@@ -20,7 +20,7 @@
 
 `SpeechProviderInfo.downloadSources` 公布准备阶段的源。`SpeechPreparationOptions.downloadSource` 为单次任务选择一个源；省略时保留提供方策略。SenseVoice 校验公布的选项，固定使用手动指定的源而不回退，并拒绝在准备期间改源。UI 为当前卡片中的重试保留选择，但不会将其保存为识别偏好。
 
-Host Provider 在页面和 Session 变化期间拥有同一个准备任务。Client 在输入框、安装引导弹窗、Bundle 详情之间共享一份 `follow()` 订阅。可选 `SpeechSetupEstimate` 元数据提供各 Provider 的资源预期，与实测进度分开。`SpeechPreparationStepKind` 标识有序资源操作；`SpeechPreparationStep` 记录各步骤状态与开始时间。完整 `SpeechPreparationState` 在取消或失败后保留这些步骤。折叠 UI 显示当前操作，展开后列出所有步骤，仅进行中步骤显示字节进度或等待时间。关闭观察者不会取消准备。已校验文件在重试及空闲进程回收后继续复用。
+Host Provider 在页面和 Session 变化期间拥有同一个准备任务。Client 在输入框、安装引导弹窗、Bundle 详情之间共享一份 `follow()` 订阅。可选 `SpeechSetupEstimate` 元数据提供各 Provider 的资源预期，与实测进度分开。`SpeechPreparationStepKind` 标识有序资源操作；`SpeechPreparationStep` 记录各步骤状态与开始时间。完整 `SpeechPreparationState` 在取消或失败后保留这些步骤。折叠 UI 显示当前操作，展开后列出所有步骤，仅进行中步骤显示字节进度或等待时间。关闭观察者不会取消准备。已校验的 SenseVoice 文件在重试及空闲进程回收后继续复用。Apple Native Provider 仅在 macOS 且原生可执行文件存在时注册；通过私有临时文件传递浏览器 WAV，公布配置的语言区域提示，无需 SenseVoice 准备。Apple 运行时首次使用时可能安装自己的语言资源。
 
 准备失败时可包含 `SpeechDownloadFailure`，提供文件、下载源、原因分类以及可选错误码或 HTTP 状态。Client 将恢复建议本地化；原始下载错误留在 Host。
 

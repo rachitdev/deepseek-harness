@@ -1,5 +1,5 @@
 ---
-description: "Fourteen typed decision consumers, including parallel-canary model failover and live screening of recalled memory."
+description: "Sixteen typed decision consumers, including parallel-canary model failover, live screening of recalled memory, and per-turn model triage."
 kind: "package-reference"
 ---
 
@@ -9,14 +9,15 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-decision-consumers` provides consumers that branch on typed judgements from `ctx.decision`. Twelve exported functions classify browser actions and targets, tool risk, model tiers, retrieval candidates, compaction items, loop state, subagent results, verification work, skill routing, fetched-page safety, and drift from repository instructions. Live failover intercepts an eligible Agent request failure, probes alternate routes concurrently, lets the decision provider choose a healthy one, and retries the same step through it. The live recall filter judges each plugin-injected memory item before the step runs, omitting low-relevance items and withholding stored prompt injections.
+`dsh-decision-consumers` provides consumers that branch on typed judgements from `ctx.decision`. Exported functions classify browser actions, tool risk, model tiers, retrieval candidates, compaction items, loop state, subagent results, verification work, skills, fetched-page safety, and instruction drift. Live failover probes alternate routes after an eligible request failure and retries the step through the healthy one the provider chooses. The live recall filter omits low-relevance memory items and withholds stored prompt injections before a step. Live turn triage assigns each user turn a model tier before generation and logs or enforces it.
 
 ## Table of Contents
 
 - [Use this package](#use-this-package)
-- [The Fourteen Consumers](#the-fourteen-consumers)
+- [The Sixteen Consumers](#the-sixteen-consumers)
 - [Live model failover](#live-model-failover)
 - [Live recall filter](#live-recall-filter)
+- [Live turn triage](#live-turn-triage)
 - [Understand the implementation](#understand-the-implementation)
 - [Further Exploration](#further-exploration)
 - [Dev Note](#dev-note)
@@ -50,8 +51,8 @@ if (step.action.type === 'click') {
 }
 ```
 
-<a id="the-fourteen-consumers"></a>
-## The Fourteen Consumers
+<a id="the-sixteen-consumers"></a>
+## The Sixteen Consumers
 
 | Consumer | Function | Purpose | Primary Questions |
 |---|---|---|---|
@@ -69,6 +70,8 @@ if (step.action.type === 'click') {
 | **12. Instruction drift** | `assessInstructionDrift` | Advisory judgement that work diverged from repository instructions | `drift` (Boolean) |
 | **13. Browser action policy** | `decideBrowserAction` | Next browser operation and its target from an observed element table | `operation` (Choice), one `<operation>_target` (Choice) per offered operation |
 | **14. Recall filter** | `installRecallFilter`, `screenRecallItems` | Relevance and stored-injection screening of recalled memory before a step | `rel_<n>` (Score, 0..3 usefulness), `inj_<n>` (Boolean) per item |
+| **15. Skill cascade** | `cascadeSkillSelection` | Progressive-disclosure skill routing over a caller-grouped catalog; a single-option stage makes no call | `category` (Choice), `needs_skill` (Boolean), then `skill` (Choice) within the winning category |
+| **16. Turn triage** | `installTurnTriage`, `triageTurn` | Per-turn model tier before generation, logged or enforced | `tier` (Choice) over the configured tiers |
 
 <a id="live-model-failover"></a>
 ## Live model failover
@@ -125,6 +128,42 @@ Any other provider failure, a malformed answer, or exceeding `timeoutMs` leaves 
 
 The recall source appends its message after its own `next()`, so the filter must be the outermost `agent/pre-step` listener. Plugins apply concurrently, so configuration order cannot guarantee that; the filter re-registers its `prepend` listener on every `agent/created`, after every boot-time registration.
 
+<a id="live-turn-triage"></a>
+## Live turn triage
+
+Set `turnTriage.enabled` to register an `agent/pre-step` listener that starts one decision call when a step carries direct user text and the Agent's turn has no verdict yet. The call sends the user text (up to `maxQueryChars`) and the tail of the previous assistant reply (up to `maxContextChars`), and asks one `tier` choice whose options are the configured tier names and descriptions. A winning probability below `minConfidence` selects `fallbackTier`. Delegated Agents (`delegationDepth` above 0) are skipped unless `includeSubagents` is true. Configuration with fewer than two tiers, a duplicated tier name, or a `fallbackTier` that names no tier throws at plugin load.
+
+- `mode: advisory` logs `turn triage (advisory): agent … turn … -> <tier> (chose <tier> at <p>) route <provider>/<model> in <ms>ms via <provider id>` and changes nothing the model receives.
+- `mode: enforce` also registers an `agent/request` listener. Every request of the triaged turn waits for the verdict and switches `provider`, `model`, and `reasoningEffort` to the tier's route (an unset tier effort drops the inherited one). The resulting `request/header` records the effective route. A listener registered earlier, such as live failover's takeover, still replaces the routed config for its own step.
+
+A provider failure, a malformed answer, or exceeding `timeoutMs` logs a warning and leaves the turn on its configured model.
+
+```yaml
+- id: decision-consumers
+  config:
+    turnTriage:
+      enabled: true
+      mode: advisory
+      fallbackTier: standard
+      minConfidence: 0.5
+      maxQueryChars: 2000
+      maxContextChars: 800
+      timeoutMs: 3000
+      tiers:
+        - name: fast
+          description: Short acknowledgements, exact-reply requests, and one-fact lookups
+          provider: omniroute
+          model: agy/gemini-3.8-flash-high
+        - name: standard
+          description: Routine questions, single-tool updates, and single-file edits
+          provider: omniroute
+          model: cc/claude-sonnet-5-5
+        - name: frontier
+          description: System design, multi-component builds, deep debugging, and security analysis
+          provider: omniroute
+          model: auto/best-coding
+```
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
@@ -164,6 +203,20 @@ Each step's new tail, and every later request that carries it, shrinks by the om
 
 The filtered recall message is the logged one, so later requests replay the same bytes and prefix caching is unaffected. Canary calls use one user message and do not reuse the Agent conversation prefix. A provider/model takeover changes the main request route, so cache reuse depends on the selected adapter and provider; callers must not assume the failed route's cache survives. The arbitration request is a separate decision call whose prompt the decision provider builds and discards.
 
+### Triaged model route
+
+#### What the model sees
+
+Advisory triage sends nothing to the Agent's model. Enforced triage changes which provider and model receive the turn's requests; the message content is unchanged, and each `request/header` records the route used.
+
+#### Token effect
+
+Triage adds no tokens to the Agent's requests. Each triaged turn adds one decision call outside the conversation.
+
+#### KV Cache effect
+
+A turn routed to a different model than the previous turn cannot reuse that model's cached prefix, so each enforced tier change starts the new route's prefix cache cold.
+
 ## Known Limitations and Deferred Work
 
 - **State truncation:** Consumers providing large page snapshots or transcript diffs must be mindful of provider context limits; state is truncated to sensible bounds per consumer. `scoreCompactionItems` fits its own state through staged summary truncation and splits its questions across concurrent requests, so it is the exception; every other consumer still sends one request.
@@ -175,4 +228,5 @@ The filtered recall message is the logged one, so later requests replay the same
 - **Failover fan-out:** Every authorized canary receives the latest user task. Deployments handling provider-restricted data must keep `allowedModels` and fallback `candidates` within the permitted provider set.
 - **Recall filter calibration:** `minRelevance` 0.5 and `injectionThreshold` 0.7 were measured against TypeSafe Jev on 40 recorded recalls (419 items) with 20 planted attacks and 20 benign security notes: every planted attack scored 0.75–0.99 or was refused by the gateway, and no benign or recorded item exceeded 0.16. Other decision providers need their own calibration. Each screened step adds one decision round trip (p50 about 0.45 s, p95 about 0.85 s).
 - **Recall filter scope:** Only single-text-block messages from the configured source are screened; the memory plugin's profile message (`form: instructions`) and recall formats without `<memory uri>` elements pass through unscreened. Short follow-ups such as "go ahead" are judged against the previous assistant reply, which still omits items a later step might need; the omission note tells the model to search memory.
+- **Turn triage calibration:** Replayed against TypeSafe Jev on 60 recorded user turns hand-labelled fast, standard, or frontier, the three-tier policy above matched the label on 27 turns, routed 23 to a cheaper tier than the label (2 frontier turns to fast), and 10 to a costlier one; p50 latency was 0.31 s and p95 0.41 s. Raising `minConfidence` does not separate the under-routed turns, whose confidence matches correct ones. Keep `mode: advisory` until a deployment's own tier descriptions reach an acceptable under-routing rate.
 - **Arbiter availability:** Ranked multi-survivor takeover still prefers a reachable JEV/Laya judge. If the judge is down, failover takes the first healthy probe in candidate order instead of same-route retry, so a cooling or 429 model cannot stall the turn. Same-route retry remains only when every canary also fails.
