@@ -1018,17 +1018,6 @@ describe('sandbox escalation API (write/edit)', () => {
     }])
   })
 
-  it('writes under narrower workspace-write without approval when danger-full-access is effective', async () => {
-    const { ctx, fs } = await setupConfining()
-    const result = await call(ctx, 'write', {
-      file_path: 'a.txt', content: 'x', sandbox_permissions: 'workspace-write', justification: 'confine to workspace',
-    }, escalationAgent([{ type: 'sandbox/mode', data: { mode: 'danger-full-access' } }]))
-    expect(result.isError).toBe(false)
-    expect(fs.stamped).toEqual([{
-      mode: 'workspace-write', workspaceRoot: '/session-project', sessionId: SessionId('sess-fs-esc'),
-    }])
-  })
-
   it('a rejected escalation fails closed with its own text and never mutates', async () => {
     const { ctx, fs } = await setupConfining({ approval: true })
     ctx.on('approval/request', () => Promise.resolve('rejected' as const))

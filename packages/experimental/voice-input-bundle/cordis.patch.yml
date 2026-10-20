@@ -7,11 +7,6 @@
       name: '@deepseek-ai/dsh-experimental-speech-to-text-sensevoice'
       config:
         dataRoot: !!js dshHomePath('speech-to-text', 'sensevoice')
-    - id: speech-to-text-apple-native
-      name: '@deepseek-ai/dsh-experimental-speech-to-text-apple-native'
-      config:
-        command: !!js dshHomePath('ext', 'apple-native-mcp', 'current', 'apple-native-mcp')
-        locales: [en_IN, en_US, en_GB]
     - id: api-speech-to-text
       name: '@deepseek-ai/dsh-experimental-api-speech-to-text'
     - id: ui-voice-input

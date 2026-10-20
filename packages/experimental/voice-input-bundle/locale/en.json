@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Voice input",
-    "description": "Transcribe recordings locally with SenseVoice or Apple on-device speech on supported Macs"
+    "description": "Transcribe recordings locally with SenseVoice; first use requires installing dependencies"
   }
 }

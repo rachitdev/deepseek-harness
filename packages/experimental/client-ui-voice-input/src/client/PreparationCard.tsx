@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Button, DisclosureRow, IconChevronDownOutlineRegular, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SpeechPreparationState, SpeechProviderView, SpeechSelectionPatch } from '@deepseek-ai/dsh-experimental-speech-to-text/types'
+import type { SpeechPreparationState, SpeechProviderId, SpeechProviderView, SpeechSelectionPatch } from '@deepseek-ai/dsh-experimental-speech-to-text/types'
 import type { VoiceInputInjected } from './VoiceInput.tsx'
 import { MicrophonePicker } from './MicrophonePicker.tsx'
 import { NS } from './locales.ts'
@@ -146,13 +146,7 @@ export function VoicePreparation({ useSpeechReadiness, ...props }: Pick<InjectFa
     {catalog && <div className={css.preferences}>
       <MicrophonePicker {...props} />
       <label>{props.t('provider')}<select value={catalog.selection.providerId} disabled={!readiness.connected || saving}
-        onChange={(event) => {
-          const provider = catalog.providers.find(item => item.id === event.target.value)
-          if (!provider) return
-          const language = provider.languages.includes(catalog.selection.language) ? catalog.selection.language : provider.languages[0]
-          const patch = language === undefined || language === catalog.selection.language ? {} : { language }
-          void configure({ providerId: provider.id, ...patch })
-        }}>
+        onChange={(event) => { void configure({ providerId: event.target.value as SpeechProviderId }) }}>
         {catalog.providers.map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
       </select></label>
       <label>{props.t('language')}<select value={catalog.selection.language} disabled={!readiness.connected || saving}

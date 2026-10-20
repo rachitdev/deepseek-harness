@@ -28,8 +28,7 @@ it.skipIf(webSnapshotMode() === 'record')('guides voice setup, records from stan
     }
   })
   const overlay = join(scratch, 'voice.patch.yml')
-  await writeFile(overlay, '- id: speech-to-text-sensevoice\n  disabled: true\n'
-    + (process.platform === 'darwin' ? `- id: speech-to-text-apple-native\n  config:\n    command: ${JSON.stringify(process.execPath)}\n    locales: [en_IN, en_US]\n` : ''))
+  await writeFile(overlay, '- id: speech-to-text-sensevoice\n  disabled: true\n')
   const prompt = fixtureUserPrompts(await readFile(fixture, 'utf8'))[0]!
   const prefix = 'Use the bash tool to '
   const scaffold = await launchWebScaffold({ profile: { packages: [{ dir: bundle, enabled: true }] },
@@ -131,15 +130,8 @@ it.skipIf(webSnapshotMode() === 'record')('guides voice setup, records from stan
   await expect.poll(() => detailsAction.evaluate(element => element === document.activeElement)).toBe(true)
   await page.keyboard.press('Enter')
   await page.setViewportSize({ width: 1280, height: 900 })
-  const detail = page.locator('[data-plugin-detail="@deepseek-ai/dsh-experimental-voice-input-bundle"]')
-  await detail.getByRole('button', { name: 'Retry preparation', exact: true }).waitFor()
-  if (process.platform === 'darwin') {
-    const recognizer = detail.getByLabel('Recognition service')
-    await recognizer.selectOption('apple-native')
-    await expect.poll(() => detail.getByLabel('Recognition language').inputValue()).toBe('en_IN')
-    await recognizer.selectOption('sensevoice-local')
-    await expect.poll(() => detail.getByLabel('Recognition language').inputValue()).toBe('auto')
-  }
+  await page.locator('[data-plugin-detail="@deepseek-ai/dsh-experimental-voice-input-bundle"]')
+    .getByRole('button', { name: 'Retry preparation', exact: true }).waitFor()
   expect(await unavailable.count()).toBe(0)
   expect(messages).toBe(0)
   expect(recognize).not.toHaveBeenCalled()
