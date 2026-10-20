@@ -56,6 +56,20 @@
   white-space: nowrap;
 }
 
+/* Loopback-only shut-down row: same geometry as Settings, danger ink. */
+.shutdown {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.shutdown:hover {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+.shutdown:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 /* Full-viewport layer (figma Mask 501:29946 #000@24%): mask tokens match the
    Modal primitive (--dsw-alias-bg-mask-1 + --dsw-mask-blur). */
 .overlay {

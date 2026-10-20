@@ -167,6 +167,16 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-credentials-local` | yes | File-backed credentials provider ($DSH_HOME/.env under the live process environment) for the DeepSeek Harness |
 | `@deepseek-ai/dsh-deepseek-account-platform` | yes | Authorize DeepSeek accounts through browser PKCE |
 
+## decision
+
+| Package | Config | Description |
+|---|---|---|
+| `@deepseek-ai/dsh-decision` | yes | Service Definition for the DeepSeek Harness decision capability seam (ctx.decision) |
+| `@deepseek-ai/dsh-decision-consumers` | yes | Nine decision-driven consumers, including live parallel-probe model failover |
+| `@deepseek-ai/dsh-decision-jev` | yes | TypeSafe Jev decision provider for the DeepSeek Harness decision capability seam (ctx.decision) |
+| `@deepseek-ai/dsh-decision-laya` | yes | Laya on-demand decision provider for the DeepSeek Harness decision capability seam (ctx.decision) |
+| `@deepseek-ai/dsh-decision-llm` | yes | LLM-backed decision provider for the DeepSeek Harness decision capability seam (ctx.decision) |
+
 ## deliverables
 
 | Package | Config | Description |
@@ -497,6 +507,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-web-deepseek-api` | yes | DeepSeek Search and Fetch API providers for the DeepSeek Harness web capability seam (ctx.web) |
 | `@deepseek-ai/dsh-web-fetch-http` | yes | Anonymous public HTTP(S) fetch provider for the DeepSeek Harness web capability seam (ctx.web) |
 | `@deepseek-ai/dsh-web-search-deepseek` | yes | DeepSeek-backed search provider (native web_search via the Anthropic-compatible API) for the DeepSeek Harness web capability seam (ctx.web) |
+| `@deepseek-ai/dsh-web-search-duckduckgo` | yes | DuckDuckGo Lite-backed search provider for the DeepSeek Harness web capability seam (ctx.web) |
 | `@deepseek-ai/dsh-web-search-exa` | yes | Exa-backed search provider for the DeepSeek Harness web capability seam (ctx.web) |
 | `@deepseek-ai/dsh-web-search-perplexity` | yes | Perplexity-backed search provider for the DeepSeek Harness web capability seam (ctx.web) |
 

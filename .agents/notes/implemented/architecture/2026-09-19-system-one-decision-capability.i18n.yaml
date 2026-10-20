@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-09-19-system-one-decision-capability.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-19-system-one-decision-capability.md
+/agent-note-system-one-decision-capability:
+  en: db8449a4e058ebe5
+  zh: 798ef1af81cd81ec
+/agent-note-system-one-decision-capability/problem:
+  en: 5e0b2fff5dd011ed
+  zh: ea27d9a1014ba556
+/agent-note-system-one-decision-capability/decision:
+  en: 446cf17178348089
+  zh: 3ded400ce509fc4f
+/agent-note-system-one-decision-capability/decision/provider-routes-evaluated:
+  en: 96d3a6964b2bed16
+  zh: ad17e69b7cf75706
+/agent-note-system-one-decision-capability/decision/measured-reality:
+  en: d9fd446151a9e829
+  zh: 5fbac161c246c915
+/agent-note-system-one-decision-capability/alternatives-considered:
+  en: 4c029235f203d914
+  zh: b8ffa85ec581656b
+/agent-note-system-one-decision-capability/consequences:
+  en: e3ea2762e3db801b
+  zh: 4143e5a39451aabe
+/agent-note-system-one-decision-capability/verification:
+  en: dd4268632021cf57
+  zh: 8f86e623da545ac3

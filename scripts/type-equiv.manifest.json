@@ -468,6 +468,61 @@
       "source": "packages/experimental/agent-team/src/types.ts"
     },
     {
+      "doc": "docs/subsystems/decision.md",
+      "symbol": "DecisionQuestion",
+      "source": "packages/decision/decision/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/decision.md",
+      "symbol": "DecisionChoiceQuestion",
+      "source": "packages/decision/decision/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/decision.md",
+      "symbol": "DecisionScoreQuestion",
+      "source": "packages/decision/decision/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/decision.md",
+      "symbol": "DecisionBooleanQuestion",
+      "source": "packages/decision/decision/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/decision.md",
+      "symbol": "DecisionAnswer",
+      "source": "packages/decision/decision/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/decision.md",
+      "symbol": "DecisionChoiceAnswer",
+      "source": "packages/decision/decision/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/decision.md",
+      "symbol": "DecisionScoreAnswer",
+      "source": "packages/decision/decision/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/decision.md",
+      "symbol": "DecisionBooleanAnswer",
+      "source": "packages/decision/decision/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/decision.md",
+      "symbol": "DecisionRequest",
+      "source": "packages/decision/decision/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/decision.md",
+      "symbol": "DecisionResult",
+      "source": "packages/decision/decision/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/decision.md",
+      "symbol": "DecisionProvider",
+      "source": "packages/decision/decision/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/commands.md",
       "symbol": "CommandInputDescriptor",
       "source": "packages/interaction/commands/src/types.ts"

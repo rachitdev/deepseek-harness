@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-20-model-failover-missed-omniroute-errors.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-20-model-failover-missed-omniroute-errors.md
+/agent-note-model-failover-missed-live-omniroute-quota-and-billing-errors:
+  en: ec5ecf1db71341ad
+  zh: fdec85447773b339
+/agent-note-model-failover-missed-live-omniroute-quota-and-billing-errors/problem:
+  en: cebe90daf9a250c7
+  zh: f2850b2857d9a225
+/agent-note-model-failover-missed-live-omniroute-quota-and-billing-errors/decision:
+  en: 41102ab0643044ce
+  zh: 081c98b73738dbc6
+/agent-note-model-failover-missed-live-omniroute-quota-and-billing-errors/alternatives-considered:
+  en: a90e86271a49a1a8
+  zh: 9a7e0e2c771f44d8
+/agent-note-model-failover-missed-live-omniroute-quota-and-billing-errors/consequences:
+  en: 63c289f41287724e
+  zh: 5bdf6437e8ddea7f

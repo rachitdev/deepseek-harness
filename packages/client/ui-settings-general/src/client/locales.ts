@@ -43,6 +43,8 @@ export const zh = {
   'hostRelease.unknown': '未解析',
   'hostRelease.reload': '刷新以加载新版本',
   'hostRelease.later': '暂不刷新',
+  'shutdown': '关闭 DSH',
+  'shutdown.confirm': '关闭 DeepSeek Harness？\n\n会停止 Harness 进程及其启动的本地依赖（OpenViking / Ollama / OmniRoute）。',
 } satisfies Record<string, string>
 
 /** The settings namespace key union. */
@@ -91,4 +93,6 @@ export const en = {
   'hostRelease.unknown': 'Unknown',
   'hostRelease.reload': 'Reload to load the new version',
   'hostRelease.later': 'Not now',
+  'shutdown': 'Shutdown DSH',
+  'shutdown.confirm': 'Shutdown DeepSeek Harness?\n\nThis stops the harness process and local dependents it started (OpenViking / Ollama / OmniRoute).',
 } satisfies Record<SettingsKey, string>

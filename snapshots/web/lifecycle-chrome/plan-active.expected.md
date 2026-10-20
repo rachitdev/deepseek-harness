@@ -13,6 +13,7 @@
   - treeitem "workspace" [expanded]
   - treeitem "New Session" [selected]
 - button "Account menu": More
+- button "Shutdown DSH"
 - banner:
   - button "Open right sidebar"
 - text: Into the Unknown Preview

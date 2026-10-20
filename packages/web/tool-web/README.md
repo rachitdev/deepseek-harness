@@ -50,6 +50,10 @@ Load the web service, at least one backend, and this package; both tools registe
 | `fetchTimeoutMs` | `30000` | Cooperative tool-call timeout budget (ms) for `web_fetch` |
 | `searchTimeoutMs` | `30000` | Cooperative tool-call timeout budget (ms) for `web_search` |
 | `fetchMaxOutputChars` | `200000` | Cap on source characters converted synchronously and on one complete `web_fetch` output |
+| `fetchGuardrail` | `false` | Ask the mounted decision provider to screen fetched text before model-visible rendering |
+| `fetchGuardrailReviewThreshold` | `0.30` | Hazard probability at or above which fetched text is withheld for review |
+| `fetchGuardrailBlockThreshold` | `0.70` | Hazard probability at or above which fetched text is blocked |
+| `fetchGuardrailMaxStateCharacters` | `8000` | Maximum fetched characters sent to the decision provider |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-web) is the exhaustive source for every accepted field and its JSDoc. `searchMaxQueries` bounds the accepted array before exact-string deduplication and provider fan-out; validation rejects an oversized array before any search starts. The timeout budgets attach to each tool definition and are enforced by [`@deepseek-ai/dsh-tool-call-timeout-policy`](../../guard/timeout-policy/README.md); the model-facing schemas expose no timeout argument.
 
@@ -65,7 +69,7 @@ If any query in a multi-query call fails, `web_search` aborts the remaining sear
 
 ### Using web_fetch
 
-Call `web_fetch` with one `url`. HTML bodies are filtered and rendered to markdown (GFM tables and strikethrough included); text bodies pass through under an untrusted-content notice. A non-2xx status is reported in the result, not thrown as an error. Truncated content appends `(Content truncated. Fetch a more specific URL or section for the full text.)`.
+Call `web_fetch` with one `url`. HTML bodies are filtered and rendered to markdown (GFM tables and strikethrough included); text bodies pass through under an untrusted-content notice. When `fetchGuardrail` is enabled, the mounted decision provider evaluates prompt-injection and credential-harvest hazards before rendering; `review` and `block` verdicts replace the fetched body with a bounded diagnostic, while provider errors fail the tool call rather than returning unreviewed text. A non-2xx status is reported in the result, not thrown as an error. Truncated content appends `(Content truncated. Fetch a more specific URL or section for the full text.)`.
 
 ```text
 web_fetch({ url: 'https://example.com' })

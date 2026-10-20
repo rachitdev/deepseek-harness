@@ -51,6 +51,10 @@ The General section holds the built-in Coding Tools and Current version rows alo
 
 On a loopback browser, the shell renders **Open configuration file** only when the Host confirms that a provider-owned local document can be prepared. The action opens that document in the native text editor (bypassing the browser file association on macOS). Remote browsers never register this native-open action, including on configured public deployments; their preferences persist through the Host settings service.
 
+### Shutting down the harness
+
+On the same loopback seat the shell also renders a red **Shutdown DSH** row directly under the Settings trigger. After a confirmation dialog it posts `POST /__dsh/shutdown`, then closes this browser tab (`window.close()`, falling back to `about:blank` when the browser blocks closing a tab the script did not open). The route belongs to a profile-installed Host plugin; which local dependents it stops is that plugin's decision. Remote browsers omit the row.
+
 ### Onboarding steps
 
 The onboarding ledger projects in ascending order and mounts exactly one step at a time. Registrants own durable completion, capability readiness, copy, mutations, and their visible wrapper, so independently registered flows cannot stack and the shell does not become a second configuration fact source. Visible steps own their dialog chrome and app-root `inert` lifecycle.

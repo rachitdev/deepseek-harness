@@ -97,6 +97,10 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/core/agent-default-model': { kind: 'indirect', reason: 'The service supplies a ModelSelection; request assembly and adapters own the model-visible request.' },
   'packages/llm/deepseek-llm-api-extensions': { kind: 'indirect', reason: 'The registry contributes model-hidden provider fields; dsh-llm-deepseek owns their wire placement.' },
   'packages/preset/agent-preset': { kind: 'indirect', reason: 'The declaration selects plugins that own model-visible contributions.' },
+  'packages/decision/decision': { kind: 'none', reason: 'This typed-judgement service delegates all prompt construction and execution to registered providers and their callers.' },
+  'packages/decision/decision-jev': { kind: 'none', reason: 'This decision provider calls an external evaluation endpoint that contributes nothing to the conversation model context.' },
+  'packages/decision/decision-laya': { kind: 'none', reason: 'This decision provider runs a local worker process whose inputs and outputs never enter the conversation model context.' },
+  'packages/decision/decision-llm': { kind: 'none', reason: 'This decision provider runs auxiliary model calls whose prompts are built and discarded locally.' },
   'packages/typert/registry': { kind: 'none', reason: 'Runtime type registry; consumers (cordis_inspect, wire faces, gates) own any model-visible projection of registry contents.' },
   'packages/typert/loader': { kind: 'none', reason: 'Loader integration only registers generated artifacts; consumers own any model-visible projection.' },
   'packages/util/http-proxy': { kind: 'none', reason: 'Transport policy only: it changes how bytes reach the network and registers no prompt, schema, or result text.' },
@@ -246,6 +250,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/web/web': { kind: 'indirect', reason: 'The provider registry delegates model rendering to dsh-tool-web.' },
   'packages/web/web-fetch-http': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-web.' },
   'packages/web/web-search-exa': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-web.' },
+  'packages/web/web-search-duckduckgo': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-web.' },
   'packages/workflow/workflow': { kind: 'indirect', reason: 'The service delegates parent and child model rendering to its consumer and engine.' },
 }
 

@@ -818,7 +818,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'web',
     title: 'Web access provider registry',
     mode: 'seam',
-    implementations: ['web-search-exa', 'web-search-perplexity', 'web-search-deepseek', 'web-deepseek-api', 'web-fetch-http'],
+    implementations: ['web-search-exa', 'web-search-perplexity', 'web-search-deepseek', 'web-deepseek-api', 'web-search-duckduckgo', 'web-fetch-http'],
     consumers: ['tool-web'],
     note: 'Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names.',
   },
@@ -889,7 +889,16 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['lsp-stdio'],
     consumers: ['tool-lsp'],
     note: 'Provider registration and selection plus normalized query execution over exactly four operations; the seam offers no protocol escape hatch, so a backend translates into the normalized request and result.',
+  },  {
+    key: 'decision',
+    pkg: 'decision',
+    title: 'Typed decision seam',
+    mode: 'seam',
+    implementations: ['decision-jev', 'decision-laya', 'decision-llm'],
+    consumers: ['decision-consumers'],
+    note: 'One provider registry and one provider-selecting `evaluate` call answering a closed union of choice, score, and boolean questions in a single round trip; consumers gate on the returned calibrated probabilities, and one consumer may hot-swap the active model route after a failed request.',
   },
+
   {
     key: 'dynamicCordisRunner',
     pkg: 'cordis-host-runner',

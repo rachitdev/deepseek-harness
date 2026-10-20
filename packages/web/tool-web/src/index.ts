@@ -8,6 +8,8 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import type {} from '@deepseek-ai/dsh-decision'
+import { guardFetchedContent } from '@deepseek-ai/dsh-decision-consumers'
 import type {} from '@deepseek-ai/dsh-web'
 import { applyWebSearchTool, WEB_SEARCH_MAX_QUERIES, WEB_SEARCH_MAX_RESULTS } from './search.ts'
 import { applyWebFetchTool } from './fetch.ts'
@@ -49,6 +51,14 @@ export interface Config {
   searchTimeoutMs?: number
   /** Cap on source characters converted and complete `web_fetch` output characters. Defaults to 200000. */
   fetchMaxOutputChars?: number
+  /** Screen fetched text with the configured decision provider before returning it. Defaults to false. */
+  fetchGuardrail?: boolean
+  /** Hazard probability at or above which fetched text is withheld. Defaults to 0.70. */
+  fetchGuardrailBlockThreshold?: number
+  /** Hazard probability at or above which fetched text is withheld for review. Defaults to 0.30. */
+  fetchGuardrailReviewThreshold?: number
+  /** Maximum fetched characters sent to the decision provider. Defaults to 8000. */
+  fetchGuardrailMaxStateCharacters?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -59,6 +69,10 @@ export const Config: z<Config> = z.object({
   fetchTimeoutMs: z.number().default(DEFAULT_WEB_TOOL_TIMEOUT_MS),
   searchTimeoutMs: z.number().default(DEFAULT_WEB_TOOL_TIMEOUT_MS),
   fetchMaxOutputChars: z.number().default(DEFAULT_FETCH_MAX_OUTPUT_CHARS),
+  fetchGuardrail: z.boolean().default(false),
+  fetchGuardrailBlockThreshold: z.number().min(0).max(1).default(0.7),
+  fetchGuardrailReviewThreshold: z.number().min(0).max(1).default(0.3),
+  fetchGuardrailMaxStateCharacters: z.number().default(8000),
 })
 
 /** Complete config after schemastery applies every field default. */
@@ -88,8 +102,30 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveInteger('fetchTimeoutMs', resolved.fetchTimeoutMs)
   assertPositiveInteger('searchTimeoutMs', resolved.searchTimeoutMs)
   assertPositiveInteger('fetchMaxOutputChars', resolved.fetchMaxOutputChars)
+  assertPositiveInteger('fetchGuardrailMaxStateCharacters', resolved.fetchGuardrailMaxStateCharacters)
+  if (resolved.fetchGuardrailReviewThreshold > resolved.fetchGuardrailBlockThreshold) {
+    throw new Error('tool-web: fetchGuardrailReviewThreshold must not exceed fetchGuardrailBlockThreshold')
+  }
+  const fetchGuard = resolved.fetchGuardrail
+    ? (() => {
+      const decision = ctx.get('decision')
+      if (decision === undefined) {
+        throw new Error('tool-web: fetchGuardrail requires a mounted decision service')
+      }
+      return (url: string, content: string, signal: AbortSignal) => guardFetchedContent(
+        decision,
+        { url, content },
+        {
+          blockThreshold: resolved.fetchGuardrailBlockThreshold,
+          reviewThreshold: resolved.fetchGuardrailReviewThreshold,
+          maxStateCharacters: resolved.fetchGuardrailMaxStateCharacters,
+        },
+        signal,
+      )
+    })()
+    : undefined
   if (resolved.search) {
     applyWebSearchTool(ctx, resolved.searchMaxResults, resolved.searchMaxQueries, resolved.searchTimeoutMs, resolved.fetch)
   }
-  if (resolved.fetch) applyWebFetchTool(ctx, resolved.fetchTimeoutMs, resolved.fetchMaxOutputChars)
+  if (resolved.fetch) applyWebFetchTool(ctx, resolved.fetchTimeoutMs, resolved.fetchMaxOutputChars, fetchGuard)
 }

@@ -31,6 +31,13 @@ export const QUOTA_EXCEEDED_CODE = 'QUOTA'
 export const ACCOUNT_QUOTA_EXCEEDED_CODE = 'ACCOUNT_QUOTA'
 
 /**
+ * Canonical provider-neutral code for a model id the gateway catalog will not
+ * dispatch. Distinct from {@link INVALID_REQUEST}: the body is fine, the route
+ * is dead, and recovery may switch models. A malformed body stays invalid.
+ */
+export const MODEL_UNAVAILABLE_CODE = 'MODEL_UNAVAILABLE'
+
+/**
  * Canonical provider-neutral code for a response that completed normally but
  * carried no content blocks at all. Providers occasionally emit a degenerate
  * completion (a terminal stop with zero output); adapters classify it as this
@@ -89,8 +96,8 @@ export function isContextWindowExceededError(detail: string): boolean {
 }
 
 /**
- * Recognize provider wording that identifies an exhausted account quota rather
- * than a transient request-rate limit.
+ * Recognize provider wording that identifies an exhausted account quota,
+ * cooldown, or billing block rather than a transient request-rate limit.
  * @param detail - provider error code/type/message text joined into one string.
  * @returns true only for terminal quota, balance, credit, budget, or usage-limit wording.
  */
@@ -100,6 +107,10 @@ export function isQuotaExceededError(detail: string): boolean {
     || /\bexceed(?:ed|s)?[\s_-]+(?:(?:your|the)[\s_-]+)?(?:current[\s_-]+)?quota\b/i.test(detail)
     || /\b(?:balance|credits?)[\s_-]+(?:exhausted|depleted)\b/i.test(detail)
     || /\bout[\s_-]+of[\s_-]+(?:credits?|budget)\b/i.test(detail)
+    || /\bexhausted their quota\b/i.test(detail)
+    || /\bcredits?_exhausted\b/i.test(detail)
+    || /\bcooling down\b/i.test(detail)
+    || /\b402\b|\bpayment_required\b|\bbilling_error\b/i.test(detail)
 }
 
 /**

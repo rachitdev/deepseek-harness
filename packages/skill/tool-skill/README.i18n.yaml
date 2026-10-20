@@ -9,8 +9,8 @@
   en: 223816f8da89cf76
   zh: 7c54534f299141eb
 /deepseek-ai-dsh-tool-skill/summary:
-  en: 399399741476179c
-  zh: 074ec6657481d320
+  en: 83e8f99658b1bf57
+  zh: 216b6c429528b77e
 /deepseek-ai-dsh-tool-skill/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -21,11 +21,11 @@
   en: b7d33bd969826ee3
   zh: 4e155a0f14b41541
 /deepseek-ai-dsh-tool-skill/use-this-package/mount-and-configure:
-  en: 440b17442e431e27
-  zh: f8e6d8ef9a954e86
+  en: 3c21f021f3a63a64
+  zh: 14033b84257c51b5
 /deepseek-ai-dsh-tool-skill/use-this-package/what-the-model-gets:
-  en: cf02796bd3f8877e
-  zh: 81b93b1eb7f74690
+  en: 90065ca047e7dcb9
+  zh: 1f33a8ea42988b19
 /deepseek-ai-dsh-tool-skill/use-this-package/observable-success-and-failures:
   en: 813f1a7ab04d283e
   zh: 4adfcffcbb131d54
@@ -36,14 +36,17 @@
   en: ee4380c98437d699
   zh: 25f35ec8c8c47c00
 /deepseek-ai-dsh-tool-skill/understand-the-implementation/source-map:
-  en: 509699e3a467df41
-  zh: ff7fc30ec4998e5a
+  en: 95b63470f13fed8c
+  zh: 6ce6c6a737c2a9ee
 /deepseek-ai-dsh-tool-skill/understand-the-implementation/catalog-lifecycle:
   en: 847745cf78860904
   zh: 55137ebef224ad48
 /deepseek-ai-dsh-tool-skill/understand-the-implementation/invocation-boundary:
-  en: bb8543ea29cbc451
-  zh: b1124fa489bf9ea4
+  en: 7d9f6fa9f17b965e
+  zh: 4f1ec493df8d0773
+/deepseek-ai-dsh-tool-skill/understand-the-implementation/pinned-prompt-injection:
+  en: 990d0030a335b9ba
+  zh: d98ed56d6fb39023
 /deepseek-ai-dsh-tool-skill/further-exploration:
   en: c4797732cde7d1f5
   zh: daabfd858cceb271
@@ -128,9 +131,21 @@
 /deepseek-ai-dsh-tool-skill/model-experience/user-explicit-invocation-injection/kv-cache-effect:
   en: 127c0139472bfaab
   zh: 805dc2f730c47f40
+/deepseek-ai-dsh-tool-skill/model-experience/pinned-system-prompt-injection:
+  en: 7eeefc24852a20e0
+  zh: 37eb1508abc14b44
+/deepseek-ai-dsh-tool-skill/model-experience/pinned-system-prompt-injection/what-the-model-sees:
+  en: 8a5a89309025cc28
+  zh: eec8bb64aa7b7436
+/deepseek-ai-dsh-tool-skill/model-experience/pinned-system-prompt-injection/token-effect:
+  en: 1cee210b844d3573
+  zh: 6fceaca8ad6fd3a7
+/deepseek-ai-dsh-tool-skill/model-experience/pinned-system-prompt-injection/kv-cache-effect:
+  en: ec91fcbcafd5a019
+  zh: 12fac93020d4e34c
 /deepseek-ai-dsh-tool-skill/known-limitations-and-deferred-work:
-  en: 6017a1dc04618288
-  zh: d613164f0e9258f9
+  en: fa8700323463115e
+  zh: 88ff2393d7ac62b1
 /deepseek-ai-dsh-tool-skill/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

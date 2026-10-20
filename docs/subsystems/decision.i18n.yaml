@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for decision.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/subsystems/decision.md
+/decision:
+  en: 371518d4491071d0
+  zh: d7925bc1daf3b892
+/decision/what-this-capability-is-for:
+  en: f72809e460f86146
+  zh: ebef2ffa1421c4c5
+/decision/questions-and-answers:
+  en: d4257b6a550cd26e
+  zh: 80fc2a57424101c8
+/decision/request-validation:
+  en: c5dc488bd0ef0fd1
+  zh: 716f8ec4feb3a26f
+/decision/provider-availability-and-selection:
+  en: 2c45ec1c2d02d2ac
+  zh: cbb348c0afc8df32
+/decision/errors:
+  en: d260652cbd2d44d0
+  zh: a99a3392e069be93
+/decision/consumers:
+  en: 739a83f31b1b429a
+  zh: ee2b56c6b3c135a9
+/decision/trust-and-untrusted-state:
+  en: f4c430fe369a742d
+  zh: 34396c17373dba4e

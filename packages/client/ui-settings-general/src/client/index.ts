@@ -123,9 +123,29 @@ export function apply(ctx: ClientContext): void {
   let rows: readonly SettingsSectionRow[] = []
   let onboardingVersion = -1
   let onboardingSteps: readonly SettingsOnboardingStep[] = []
+  const requestHarnessShutdown = (): void => {
+    // Post first so the Host can stop the dependents it started, then close
+    // this tab. window.close() only works for script-opened windows, so a
+    // blocked close falls back to blanking the page.
+    void fetch('/__dsh/shutdown', { method: 'POST' })
+      .catch(() => {
+        /* The Host may close the socket before the response lands. */
+      })
+      .finally(() => {
+        try {
+          window.close()
+        } catch {
+          /* Browsers may block closing a tab the script did not open. */
+        }
+        window.setTimeout(() => {
+          if (!window.closed) window.location.replace('about:blank')
+        }, 300)
+      })
+  }
   const shellInjected = (): SettingsRootInjected => ({
     openDesktopUpdate: () => { desktopUpdate.open() },
     reconnect: () => { connection.reconnect() },
+    ...ctx.remote.$host.isLoopback ? { onShutdown: requestHarnessShutdown } : {},
     hooks: {
       shortcuts: ctx.shortcuts.catalog,
       desktopUpdate: desktopUpdate.store,

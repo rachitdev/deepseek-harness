@@ -9,6 +9,8 @@ import { createHash } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-decision'
+import { adjudicateSkillSelection, type SkillAdjudication } from '@deepseek-ai/dsh-decision-consumers'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionSeq, type UserMessage } from '@deepseek-ai/dsh-session'
@@ -18,14 +20,24 @@ import {
   isSkillName,
   isUserInvocable,
   renderSkillContent,
+  type SkillDefinition,
   type SkillInvocationSource,
   type SkillSummary,
+  type SkillViewOptions,
 } from '@deepseek-ai/dsh-skill'
+import type { AssembledSection, PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 
 export const name = 'tool-skill'
 export const inject = ['agents', 'tools', 'skills', 'workingDirectory']
 
 const DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH = 500
+/**
+ * Skills whose full instructions join every assembled system prompt by default.
+ * The deployment owner pinned the Design Thinking General Skill (DTGS) router
+ * here so intent clarification and series routing are guaranteed before the
+ * first token of every conversation, regardless of topic.
+ */
+const DEFAULT_PINNED_SKILLS = ['dsh-design-thinking-general']
 /**
  * Durable provider and item records for one published session skill catalog. The catalog is a
  * `catalog`-form context, so it records the entries it published beside the
@@ -62,11 +74,36 @@ function catalogSourceEntries(
 export interface Config {
   /** Maximum normalized description length rendered in the session catalog; minimum 3. */
   catalogDescriptionMaxLength?: number
+  /**
+   * Skills whose full instructions join every assembled system prompt, loaded
+   * fresh per assembly with the calling agent's cwd and scope. Names must be
+   * valid skill names; a name that resolves to nothing, fails to load, or is
+   * not model-invocable is skipped for that assembly rather than failing the
+   * step. An empty array disables pinned injection. Defaults to
+   * {@link DEFAULT_PINNED_SKILLS} (the DTGS router).
+   */
+  pinnedSkills?: string[]
+  /** Adjudicate model-selected skills through the mounted decision provider. Defaults to false. */
+  skillAdjudication?: boolean
+  /** Maximum lexical shortlist size, including the model-proposed skill. Defaults to 16. */
+  skillAdjudicationMaxCandidates?: number
+  /** JEV relevance probability required for final comparison. Defaults to 0.65. */
+  skillAdjudicationRelevanceThreshold?: number
+  /** JEV phase probability required to load a companion skill. Defaults to 0.55. */
+  skillAdjudicationPhaseConfidence?: number
+  /** Maximum user-task characters sent to the decision provider. Defaults to 4000. */
+  skillAdjudicationMaxTaskChars?: number
 }
 
 /** Validate and default the model-facing skill catalog configuration. */
 export const Config: z<Config> = z.object({
   catalogDescriptionMaxLength: z.number().default(DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH),
+  pinnedSkills: z.array(z.string()).default(DEFAULT_PINNED_SKILLS),
+  skillAdjudication: z.boolean().default(false),
+  skillAdjudicationMaxCandidates: z.number().default(16),
+  skillAdjudicationRelevanceThreshold: z.number().min(0).max(1).default(0.65),
+  skillAdjudicationPhaseConfidence: z.number().min(0).max(1).default(0.55),
+  skillAdjudicationMaxTaskChars: z.number().default(4000),
 })
 
 /**
@@ -78,6 +115,23 @@ export const Config: z<Config> = z.object({
 export function apply(ctx: Context, config: Config = {}): void {
   const catalogDescriptionMaxLength = config.catalogDescriptionMaxLength ?? DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH
   assertPositiveInteger('catalogDescriptionMaxLength', catalogDescriptionMaxLength, 3)
+  const pinnedSkills = config.pinnedSkills ?? DEFAULT_PINNED_SKILLS
+  for (const pinned of pinnedSkills) {
+    if (!isSkillName(pinned)) {
+      throw new Error(`tool-skill: pinnedSkills entry "${pinned}" is not a valid skill name`)
+    }
+  }
+  const skillAdjudication = config.skillAdjudication ?? false
+  const skillAdjudicationMaxCandidates = config.skillAdjudicationMaxCandidates ?? 16
+  const skillAdjudicationRelevanceThreshold = config.skillAdjudicationRelevanceThreshold ?? 0.65
+  const skillAdjudicationPhaseConfidence = config.skillAdjudicationPhaseConfidence ?? 0.55
+  const skillAdjudicationMaxTaskChars = config.skillAdjudicationMaxTaskChars ?? 4000
+  assertPositiveInteger('skillAdjudicationMaxCandidates', skillAdjudicationMaxCandidates, 2)
+  assertPositiveInteger('skillAdjudicationMaxTaskChars', skillAdjudicationMaxTaskChars, 1)
+  const decision = skillAdjudication ? ctx.get('decision') : undefined
+  if (skillAdjudication && decision === undefined) {
+    throw new Error('tool-skill: skillAdjudication requires a mounted decision service')
+  }
 
   const skillTool = defineTool({
     name: 'skill',
@@ -133,27 +187,45 @@ export function apply(ctx: Context, config: Config = {}): void {
       // registry exactly as this agent's composition sees it.
       const cwd = exec.agent === undefined ? undefined : await ctx.workingDirectory.ensure(exec.agent, exec.signal)
       const lookup = { cwd, signal: exec.signal, scope: exec.agent }
-      const summary = (await ctx.skills.list(lookup)).find(skill => skill.name === args.name)
+      const summaries = await ctx.skills.list(lookup)
+      const summary = summaries.find(skill => skill.name === args.name)
       if (!summary) {
         throw new Error(`skill "${args.name}" is unknown or no longer available`)
       }
       if (!isModelInvocable(summary)) {
         throw new Error(`skill "${args.name}" is not available for model invocation`)
       }
-      const skill = await ctx.skills.get(args.name, lookup)
-      if (!skill) {
-        throw new Error(`skill "${args.name}" is unknown or no longer available`)
+      let routing: SkillAdjudication | undefined
+      if (decision !== undefined && exec.agent !== undefined) {
+        const request = latestUserTask(exec.agent, skillAdjudicationMaxTaskChars)
+        const candidates = shortlistSkills(summaries.filter(isModelInvocable), args.name, request, skillAdjudicationMaxCandidates)
+        try {
+          routing = await adjudicateSkillSelection(decision, {
+            request,
+            dshProposed: [args.name],
+            candidates,
+          }, {
+            relevanceThreshold: skillAdjudicationRelevanceThreshold,
+            minPhaseConfidence: skillAdjudicationPhaseConfidence,
+          }, exec.signal)
+        } catch (error: unknown) {
+          if (exec.signal.aborted) throw error
+          ctx.logger.warn('skill adjudication failed; preserving model-selected skill: %o', error)
+        }
       }
-      if (!isModelInvocable(skill)) {
-        throw new Error(`skill "${args.name}" is not available for model invocation`)
+      const primaryName = routing?.primary ?? args.name
+      const primary = await loadModelSkill(ctx, primaryName, lookup)
+      const companions: SkillDefinition[] = []
+      for (const name of routing?.parallel ?? []) {
+        companions.push(await loadModelSkill(ctx, name, lookup))
       }
       return {
-        name: skill.name,
-        provider: skill.provider,
-        ...skill.resourceBase !== undefined ? {
-          resourceBase: { ...skill.resourceBase },
+        name: primary.name,
+        provider: primary.provider,
+        ...primary.resourceBase !== undefined ? {
+          resourceBase: { ...primary.resourceBase },
         } : {},
-        content: skill.content,
+        content: renderAdjudicatedContent(primary, companions, routing, args.name),
       }
     },
     presentCall(args) {
@@ -251,6 +323,46 @@ export function apply(ctx: Context, config: Config = {}): void {
         : decision.messages.map(message => message.id === existing.message.id ? catalog : message),
     }
   })
+
+  // Pinned skills ride the system prompt itself, so their instructions are
+  // guaranteed before the first token of every conversation — no catalog
+  // routing step, tool call, or user gesture can bypass them. Section text
+  // providers are synchronous while skill bodies load asynchronously, so the
+  // contribution joins through the assembly waterfall after `next()` has
+  // produced the registry-built sections. Appending at the end places the
+  // instruction material after the deployment's identity and policies,
+  // closest to the conversation, mirroring where the invocation injection
+  // sits in a step's message list. Registration after both pre-step
+  // listeners keeps reverse teardown removing this prompt material first.
+  //
+  // A pinned name that resolves to nothing, fails to load (for example
+  // malformed frontmatter), or lost model invocability degrades to
+  // catalog-only routing for that assembly instead of failing every model
+  // step of every agent.
+  ctx.on('system-prompt/assemble', async (
+    _assembly,
+    context,
+    next,
+  ): Promise<PromptAssembly> => {
+    const assembled = await next()
+    const agent = context.agent
+    if (agent === undefined || pinnedSkills.length === 0) return assembled
+    const lookup = { cwd: agent.session.header.cwd, signal: context.signal, scope: agent }
+    const pinned: AssembledSection[] = []
+    for (const pinnedName of pinnedSkills) {
+      let skill: SkillDefinition | undefined
+      try {
+        skill = await ctx.skills.get(pinnedName, lookup)
+      } catch {
+        continue
+      }
+      context.signal?.throwIfAborted()
+      if (skill === undefined || !isModelInvocable(skill)) continue
+      pinned.push({ name: `skill:pinned:${skill.name}`, text: renderSkillContent(skill) })
+    }
+    if (pinned.length === 0) return assembled
+    return { ...assembled, sections: [...assembled.sections, ...pinned] }
+  })
 }
 
 function renderCatalogMessage(entries: SkillCatalogSource['entries']): UserMessage {
@@ -334,6 +446,86 @@ function digestCatalogEntries(entries: SkillCatalogSource['entries']): string {
   return createHash('sha256')
     .update(canonical)
     .digest('hex')
+}
+
+/** Load one model-invocable skill after routing has selected it. */
+async function loadModelSkill(ctx: Context, name: string, lookup: SkillViewOptions): Promise<SkillDefinition> {
+  const skill = await ctx.skills.get(name, lookup)
+  if (!skill) throw new Error(`skill "${name}" is unknown or no longer available`)
+  if (!isModelInvocable(skill)) throw new Error(`skill "${name}" is not available for model invocation`)
+  return skill
+}
+
+/** Render routing evidence, primary instructions, parallel instructions, and deferred names. */
+function renderAdjudicatedContent(
+  primary: SkillDefinition,
+  companions: readonly SkillDefinition[],
+  routing: SkillAdjudication | undefined,
+  proposed: string,
+): string {
+  if (routing === undefined) return primary.content
+  const sections = [
+    '<skill-routing>',
+    `DSH proposed: ${proposed}`,
+    `Primary now: ${routing.primary}`,
+    `Parallel now: ${routing.parallel.join(', ') || 'none'}`,
+    `Later depth: ${routing.later.join(', ') || 'none'}`,
+    `Decision provider: ${routing.providerId}`,
+    '</skill-routing>',
+    primary.content,
+  ]
+  for (const companion of companions) {
+    sections.push(`Parallel skill selected by routing:\n${renderSkillContent(companion)}`)
+  }
+  if (routing.later.length > 0) {
+    sections.push(`Later-depth skills: ${routing.later.join(', ')}. Call the skill tool with the exact name when the current phase produces the context they need.`)
+  }
+  return sections.join('\n\n')
+}
+
+/** Produce a bounded lexical shortlist while always retaining DSH's proposed skill. */
+function shortlistSkills(
+  skills: readonly SkillSummary[],
+  proposed: string,
+  request: string,
+  maxCandidates: number,
+): SkillSummary[] {
+  const queryTokens = tokens(request)
+  const scored = skills
+    .filter(skill => skill.name !== proposed)
+    .map(skill => ({ skill, score: shortlistScore(skill, request, queryTokens) }))
+    .sort((left, right) => right.score - left.score || left.skill.name.localeCompare(right.skill.name))
+  const selected = skills.find(skill => skill.name === proposed)
+  if (selected === undefined) return []
+  return [selected, ...scored.slice(0, maxCandidates - 1).map(entry => entry.skill)]
+}
+
+function shortlistScore(skill: SkillSummary, request: string, queryTokens: ReadonlySet<string>): number {
+  const normalizedRequest = request.toLowerCase()
+  let score = normalizedRequest.includes(skill.name.toLowerCase()) ? 100 : 0
+  for (const token of tokens(`${skill.name} ${skill.description}`)) {
+    if (queryTokens.has(token)) score += skill.name.toLowerCase().includes(token) ? 4 : 1
+  }
+  return score
+}
+
+function tokens(text: string): Set<string> {
+  return new Set(text.toLowerCase().split(/[^a-z0-9]+/u).filter(token => token.length >= 3))
+}
+
+function latestUserTask(agent: Agent, maxChars: number): string {
+  const messages = agent.session.deriveMessages()
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message?.role !== 'user' || message.source.kind !== 'user') continue
+    const text = message.content
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('\n')
+      .trim()
+    if (text.length > 0) return text.slice(0, maxChars)
+  }
+  return 'Load the model-selected skill for the current task.'
 }
 
 /**

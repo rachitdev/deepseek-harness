@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Agents can discover and load skills during a session. Before the first request, when model-invocable skills exist and the `skill` tool is visible, they receive a durable catalog of available skill names and capped descriptions, and can use the `skill` tool to load full instructions. Users can invoke a user-invocable skill with `/name`, which injects the same instructions into that step. Catalog changes append a complete replacement, including an empty catalog that retires old names; configure `catalogDescriptionMaxLength` to limit each description.
+Agents can discover and load skills during a session. Before the first request, when model-invocable skills exist and the `skill` tool is visible, they receive a durable catalog of skill names and capped descriptions and can load full instructions with the `skill` tool. Users can invoke a user-invocable skill with `/name`, which injects the same instructions into that step. Pinned skills join the assembled system prompt, so their instructions precede every conversation's first token. Catalog changes append a complete replacement, and an empty catalog retires old names; `catalogDescriptionMaxLength` limits descriptions and `pinnedSkills` lists the pinned skills.
 
 ## Table of Contents
 
@@ -35,7 +35,7 @@ Use it when agents should discover and load skills during a session. Skip it whe
 
 ### Mount and configure
 
-Load the plugin together with the skill registry and at least one provider. The only configuration caps the normalized description length rendered in the catalog.
+Load the plugin together with the skill registry and at least one provider. Configuration caps the normalized description length rendered in the catalog and lists the skills whose full instructions are pinned into the system prompt.
 
 ```yaml
 - name: '@deepseek-ai/dsh-skill'
@@ -46,6 +46,7 @@ Load the plugin together with the skill registry and at least one provider. The 
 | Field | Default | Meaning |
 |---|---|---|
 | `catalogDescriptionMaxLength` | `500` | Maximum normalized description length rendered in the session catalog; minimum 3 |
+| `pinnedSkills` | `['dsh-design-thinking-general']` | Skill names whose full instructions join every assembled system prompt; invalid names fail at load, and a name that is absent, unloadable, or not model-invocable is skipped per assembly. An empty array disables pinned injection. |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-skill) is the exhaustive source for every accepted field.
 
@@ -54,6 +55,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 - **A session catalog.** When model-invocable skills exist and the `skill` tool is visible, the agent receives a durable user-role message before its first request, listing each skill's name and a capped description; the message tells the model to load a skill with the tool before acting on it, and never to infer instructions from the summary alone.
 - **A loader tool.** The model calls `skill` with the exact skill name and receives the full instruction body plus resource guidance in a canonical `<skill_content>` block; the result is retained as ordinary tool history.
 - **Explicit user invocation.** A `/name` token in direct user input that names a user-invocable skill injects that skill's instructions into the step, without the model having to load it.
+- **Pinned instructions.** Configured `pinnedSkills` bodies join the assembled system prompt of every step, so their instructions are present before the first token regardless of topic, without routing, a tool call, or a gesture.
 - **Live catalog updates.** Later membership, description, or visibility changes append a complete replacement catalog; removing every skill appends an empty catalog that retires older names.
 
 ### Observable success and failures
@@ -78,7 +80,7 @@ The package is built on two ideas. First, the catalog is a durable projection, d
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: tool registration, catalog and gesture pre-step listeners, rendering and digest |
+| [`src/index.ts`](src/index.ts) | Plugin entry: tool registration, catalog and gesture pre-step listeners, pinned system-prompt injection, rendering and digest |
 
 ### Catalog lifecycle
 
@@ -87,6 +89,10 @@ At each eligible `agent/pre-step`, the plugin snapshots the calling session's sk
 ### Invocation boundary
 
 The `/name` gesture listener scans only claimed user messages: a whitespace-bounded token naming a user-invocable skill in the workspace catalog injects the same `<skill_content>` rendering as a `user`-role instructions context appended after every other injection. Unknown names and user-disabled skills stay ordinary prose. This is the only entry point for `disable-model-invocation` skills, which the catalog and the `skill` tool never expose.
+
+### Pinned prompt injection
+
+Section text providers are synchronous while skill bodies load asynchronously, so pinned skills join through the `system-prompt/assemble` waterfall: after `next()` produces the registry-built sections, each configured name is loaded with the calling agent's cwd and scope and appended as a `skill:pinned:<name>` section rendered through the shared `renderSkillContent`. Appending at the end places the instruction material after the deployment's identity and policies, closest to the conversation. A name that resolves to nothing, fails to load, or is not model-invocable is skipped for that assembly, so a broken pinned skill degrades to catalog-only routing instead of failing every model step; a scope with an effective complete prompt section (the web runtime) discards the contribution with the rest of the assembly's sections.
 
 </details>
 
@@ -234,6 +240,20 @@ Each gesture adds one rendered skill body to that turn as injected context — t
 
 Append-only; the injection lands after the reusable request prefix inside the step's message batch and does not invalidate existing KV-cache entries.
 
+### Pinned system-prompt injection
+
+#### What the model sees
+
+Every assembled system prompt carries one `skill:pinned:<name>` section per resolvable `pinnedSkills` entry, containing that skill's canonical `<skill_content>` rendering after the registry-built sections. The body is read fresh from its provider at each assembly, so body-only edits take effect on the next step without any session action.
+
+#### Token effect
+
+One rendered skill body per pinned skill is part of every request for every conversation, regardless of topic — a fixed per-request cost chosen by the deployment, not the model.
+
+#### KV Cache effect
+
+The pinned sections sit at the end of the system prompt, inside the reusable request prefix. Body-only edits rewrite that prefix position, so a changed pinned body invalidates cache reuse from the system prompt onward for that request.
+
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
@@ -247,6 +267,7 @@ These limits define when the catalog or the loader is a poor fit. They are curre
 - **Loading is one-shot text** — there is no partial, streaming, or cached-content handle when a remote provider is slow or a skill body is large.
 - **Catalog replacement is whole-list** — one changed name or description appends every visible summary; this keeps stale-name retirement explicit but costs tokens proportional to the catalog.
 - **Bodies are not versioned** — body-only edits do not change the catalog digest or notify the model; a later tool call reads the current provider content while earlier tool results remain historical facts.
+- **Pinned bodies ride every conversation regardless of topic** — each `pinnedSkills` entry costs one rendered body per request for every agent of the deployment; a deployment that only sometimes needs the pinned skill should keep it out of the list and rely on catalog routing instead.
 
 <a id="dev-note"></a>
 ### Dev Note

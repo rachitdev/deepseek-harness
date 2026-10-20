@@ -48,6 +48,14 @@ flowchart LR
   cfg --> plugin_dsh_base_jobs
   plugin_dsh_base_llm_retry["llm-retry<br/>@deepseek-ai/dsh-llm-retry"]
   cfg --> plugin_dsh_base_llm_retry
+  plugin_dsh_base_decision["decision<br/>@deepseek-ai/dsh-decision"]
+  cfg --> plugin_dsh_base_decision
+  plugin_dsh_base_decision_jev["decision-jev<br/>@deepseek-ai/dsh-decision-jev"]
+  cfg --> plugin_dsh_base_decision_jev
+  plugin_dsh_base_decision_laya["decision-laya<br/>@deepseek-ai/dsh-decision-laya"]
+  cfg --> plugin_dsh_base_decision_laya
+  plugin_dsh_base_decision_consumers["decision-consumers<br/>@deepseek-ai/dsh-decision-consumers"]
+  cfg --> plugin_dsh_base_decision_consumers
   plugin_dsh_base_config_editor["config-editor<br/>@deepseek-ai/dsh-config-editor"]
   cfg --> plugin_dsh_base_config_editor
   plugin_dsh_base_settings["settings<br/>@deepseek-ai/dsh-settings"]
@@ -224,6 +232,10 @@ flowchart LR
 | `agent-default-model` | `@deepseek-ai/dsh-agent-default-model` |
 | `jobs` | `@deepseek-ai/dsh-jobs-local` |
 | `llm-retry` | `@deepseek-ai/dsh-llm-retry` |
+| `decision` | `@deepseek-ai/dsh-decision` |
+| `decision-jev` | `@deepseek-ai/dsh-decision-jev` |
+| `decision-laya` | `@deepseek-ai/dsh-decision-laya` |
+| `decision-consumers` | `@deepseek-ai/dsh-decision-consumers` |
 | `config-editor` | `@deepseek-ai/dsh-config-editor` |
 | `settings` | `@deepseek-ai/dsh-settings` |
 | `authorization` | `@deepseek-ai/dsh-authorization` |

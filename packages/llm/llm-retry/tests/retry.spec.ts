@@ -199,6 +199,31 @@ describe('retry projection', () => {
 })
 
 describe('provider-routed retry policy', () => {
+  it('lets a downstream recovery owner act before same-model backoff', async () => {
+    const adapter = new ScriptedAdapter([
+      new LlmError('busy', 'RATE_LIMIT', { status: 429 }),
+      textResponse('recovered downstream'),
+    ])
+    ;({ ctx: context } = await harness(adapter, {
+      mock: normalConfig({ retryableCodes: ['RATE_LIMIT'] }),
+    }))
+    context.on('agent/request-error', () => Promise.resolve({ kind: 'retry' }))
+    const agent = await context.agentLoop.create(SessionId('downstream-recovery'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(agent.session.snapshotEvents().some(event => event.type === 'llm/retry')).toBe(false)
+    expect(agent.session.deriveMessages().at(-1)).toMatchObject({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'recovered downstream' }],
+    })
+  })
+
   it('records the scheduled delay before retrying the request', async () => {
     vi.useFakeTimers()
     const adapter = new ScriptedAdapter([

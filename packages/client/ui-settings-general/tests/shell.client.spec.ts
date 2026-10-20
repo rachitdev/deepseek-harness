@@ -19,6 +19,11 @@ const it = createClientTest({ roster: webApp })
 /** The whole roster's first boot pays the cold module transform of every plugin package. */
 const COLD_BOOT_TIMEOUT_MS = 60_000
 
+/** The page authority the `connection` plugin classifies at apply, reconfigured through the jsdom instance vitest exposes. */
+function setPageUrl(url: string): void {
+  (globalThis as unknown as { jsdom: { reconfigure(settings: { url: string }): void } }).jsdom.reconfigure({ url })
+}
+
 function injectedOf(c: TestClient): SettingsRootInjected {
   const entry = c.ctx.slots.entries('sidebar.settings')[0]!
   return (entry.inject as () => SettingsRootInjected)()
@@ -165,6 +170,35 @@ describe('ui-settings-general shell', () => {
     expect(c.ctx.slots.entries('sidebar.settings').map(entry => entry.component)).toEqual([SettingsRoot])
     expect(c.ctx.slots.entries('sidebar.settings')[0]).not.toBe(before)
     for (const name of CHILD_NAMES) expect(c.ctx.slots.spec(name)).toEqual(CHILD_SPECS[name])
+  })
+
+  it('offers the Shutdown DSH request on a loopback page', async ({ start }) => {
+    const c = await start()
+    expect(c.connection.isLoopback).toBe(true)
+    expect(typeof injectedOf(c).onShutdown).toBe('function')
+  })
+
+  it('withholds the Shutdown DSH request off-loopback', async ({ start }) => {
+    const loopbackUrl = location.href
+    setPageUrl('http://198.51.100.7:3000/')
+    onTestFinished(() => { setPageUrl(loopbackUrl) })
+    const c = await start()
+    expect(c.connection.isLoopback).toBe(false)
+    expect(injectedOf(c).onShutdown).toBeUndefined()
+  })
+
+  it('posts /__dsh/shutdown and then closes the tab', async ({ start }) => {
+    const c = await start()
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 200 })))
+    vi.stubGlobal('fetch', fetchMock)
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    const close = vi.spyOn(window, 'close').mockImplementation(() => {})
+    onTestFinished(() => { close.mockRestore() })
+    const { onShutdown } = injectedOf(c)
+    expect(onShutdown).toBeDefined()
+    onShutdown?.()
+    await vi.waitFor(() => { expect(close).toHaveBeenCalledTimes(1) })
+    expect(fetchMock).toHaveBeenCalledWith('/__dsh/shutdown', { method: 'POST' })
   })
 
   it('unregisters the shell and collapses every child slot when its row unloads', async ({ start }) => {

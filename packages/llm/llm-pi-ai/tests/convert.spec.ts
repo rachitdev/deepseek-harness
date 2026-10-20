@@ -908,6 +908,18 @@ describe('mapStopReason / mapUsage', () => {
       stopReason: 'error',
       errorMessage: 'OpenAI API error (429): You exceeded your current quota, please check your plan and billing details.',
     }))).toMatchObject({ kind: 'error', failure: { code: 'QUOTA' } })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'OpenAI API error (429): {"message":"[antigravity/gemini-3.8-flash-high] All antigravity accounts have exhausted their quota (reset after 5m)"}',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'QUOTA' } })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'All credentials for model gpt-5.6-sol-medium are cooling down',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'QUOTA' } })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'OpenAI API error (402): {"message":"[402]: This model requires an opencode API key","type":"billing_error","code":"payment_required"}',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'QUOTA' } })
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 500: backend down' })))
       .toMatchObject({ kind: 'error', failure: { code: 'SERVER' } })
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'provider timed out' })))
@@ -922,6 +934,10 @@ describe('mapStopReason / mapUsage', () => {
       stopReason: 'error',
       errorMessage: 'HTTP 400: request too large for model context',
     }))).toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'OpenAI API error (400): {"message":"Model \'claude-opus-5-5\' is not available in the active live catalog for provider \'claude\'.","type":"invalid_request_error","code":"bad_request"}',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'MODEL_UNAVAILABLE' } })
     expect(mapStopReason(assistant({
       stopReason: 'error',
       errorMessage: 'HTTP 400: invalid input: temperature exceeds maximum allowed value',

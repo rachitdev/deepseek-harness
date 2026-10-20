@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/decision/README.md
+/:
+  en: d0f4d0f93fe19b24
+  zh: fae61de0beaf1b0b
+/decision-decision-capability-family:
+  en: 113cf63589943f9a
+  zh: 941d70a05af40d04
+/decision-decision-capability-family/summary:
+  en: a2945e3fd2ab85a0
+  zh: d56bcc7604ca6a16
+/decision-decision-capability-family/table-of-contents:
+  en: 1eb35b015a6c423f
+  zh: a8a3dceee2c9e943
+/decision-decision-capability-family/packages:
+  en: 830bc0d91c9ffeb0
+  zh: 9c040dc05306d0cd
+/decision-decision-capability-family/related-documentation:
+  en: f190955bd23e6579
+  zh: 63e5773bed02f478
+/decision-decision-capability-family/dev-note:
+  en: 238f896e01d07b78
+  zh: e247ea922311d5b5

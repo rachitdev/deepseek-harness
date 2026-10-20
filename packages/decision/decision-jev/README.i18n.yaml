@@ -1,0 +1,43 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/decision/decision-jev/README.md
+/:
+  en: 9520329335693cd3
+  zh: 3a7ce8c6dfc0df86
+/deepseek-ai-dsh-decision-jev:
+  en: bfd0ab2fd75d0347
+  zh: 6c396d00a870a445
+/deepseek-ai-dsh-decision-jev/summary:
+  en: 9a59da853a69a4f4
+  zh: 9484db02f48191bf
+/deepseek-ai-dsh-decision-jev/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 9aa34fb1dc95d8cf
+/deepseek-ai-dsh-decision-jev/use-this-package:
+  en: 9218f5c0c81d8a9a
+  zh: 49a7e077205a1524
+/deepseek-ai-dsh-decision-jev/use-this-package/when-to-choose-it:
+  en: 588d85beea3c37d1
+  zh: a27690ab72a97bd1
+/deepseek-ai-dsh-decision-jev/use-this-package/minimal-configuration:
+  en: a84f052ee56b9421
+  zh: 17158cf476136d0a
+/deepseek-ai-dsh-decision-jev/understand-the-implementation:
+  en: e9a24835443c2855
+  zh: ad666c1dec0f9acc
+/deepseek-ai-dsh-decision-jev/further-exploration:
+  en: 7ef08acec7a36f82
+  zh: 7e3b9e00732e9a86
+/deepseek-ai-dsh-decision-jev/dev-note:
+  en: 49a29f43607ebbf3
+  zh: 21414f54720f4430
+/deepseek-ai-dsh-decision-jev/model-experience:
+  en: 85fca8dbca2d2fba
+  zh: e841b6aea48f4bc4
+/deepseek-ai-dsh-decision-jev/model-experience/kv-cache-effect:
+  en: f5d6196a2c9ac223
+  zh: 2cd6f8bc04c85906
+/deepseek-ai-dsh-decision-jev/known-limitations-and-deferred-work:
+  en: 9999cb5c87d322d4
+  zh: 64dccef21a7851c9

@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-24-decision-request-only-inputs.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-24-decision-request-only-inputs.md
+/agent-note-decision-prompts-as-request-only-inputs:
+  en: a6b394e7d9d9c6ba
+  zh: 81611073bfe4a9ab
+/agent-note-decision-prompts-as-request-only-inputs/problem:
+  en: 422c7b53e9703dad
+  zh: 6740b81bdead628d
+/agent-note-decision-prompts-as-request-only-inputs/decision:
+  en: d8de64ea2bca75cd
+  zh: 017f0fc0b4c04162
+/agent-note-decision-prompts-as-request-only-inputs/alternatives-considered:
+  en: 32d612e8a9e39890
+  zh: 964d2080afad3be9
+/agent-note-decision-prompts-as-request-only-inputs/testing:
+  en: 3895edc4812a6955
+  zh: 7e348ad7ef388efe
+/agent-note-decision-prompts-as-request-only-inputs/consequences:
+  en: f8df3fe4f397175f
+  zh: d172e14fd3a433e1

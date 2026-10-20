@@ -1,0 +1,43 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/decision/decision-llm/README.md
+/:
+  en: 79718bb889f566c6
+  zh: 176bece146ae03b3
+/deepseek-ai-dsh-decision-llm:
+  en: 6115ed7113464de6
+  zh: 31aa66a9550e8201
+/deepseek-ai-dsh-decision-llm/summary:
+  en: 3fc43e36586a530d
+  zh: 9dce27557bb03b9d
+/deepseek-ai-dsh-decision-llm/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 9aa34fb1dc95d8cf
+/deepseek-ai-dsh-decision-llm/use-this-package:
+  en: b8f3ce9ea6086454
+  zh: ac453280da695ee3
+/deepseek-ai-dsh-decision-llm/use-this-package/when-to-choose-it:
+  en: d524df82adf5df17
+  zh: 6e01b12dc36d9d93
+/deepseek-ai-dsh-decision-llm/use-this-package/minimal-configuration:
+  en: 7a00af64c2304c53
+  zh: 5de3a2971cefe18e
+/deepseek-ai-dsh-decision-llm/understand-the-implementation:
+  en: b3754a951b39edde
+  zh: 758da5f5f6e9e4cc
+/deepseek-ai-dsh-decision-llm/further-exploration:
+  en: d43f934cd4b70bef
+  zh: 62ec9a3409a77873
+/deepseek-ai-dsh-decision-llm/dev-note:
+  en: 5909d7a75ea27650
+  zh: 14a6c5df228d935a
+/deepseek-ai-dsh-decision-llm/model-experience:
+  en: da1befb084e9f0a0
+  zh: da381705e8413fad
+/deepseek-ai-dsh-decision-llm/model-experience/kv-cache-effect:
+  en: 869d0f36919f78c4
+  zh: 861cb001c9ae1025
+/deepseek-ai-dsh-decision-llm/known-limitations-and-deferred-work:
+  en: 480b5e7b45ad684e
+  zh: 15a52b81331cedbd

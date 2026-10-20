@@ -196,25 +196,23 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     next: () => Promise<RequestErrorAction>,
   ): Promise<RequestErrorAction> {
     if (policy === undefined) return next()
-    if (policy.mode === 'always') {
-      if (signal.aborted || lifetime.signal.aborted) return
-      const fusedSignal = AbortSignal.any([signal, lifetime.signal])
-      // The loop and plugin lifetime stay open until delegated recovery settles.
-      // An abort then wins before the decision or fallback can mutate later state.
-      const downstream = await settleDownstream(next)
-      if (fusedSignal.aborted) return
-      if (downstream.type === 'error') {
-        ctx.logger.warn(
-          `llm-retry: provider "${provider}" always policy ignored a downstream recovery failure: %o`,
-          downstream.error,
-        )
-      }
-      if (downstream.type === 'decision' && downstream.decision?.kind === 'retry') {
-        return downstream.decision
-      }
-    } else if (!policy.retryableCodes.includes(failure.code)) {
-      return next()
+    if (signal.aborted || lifetime.signal.aborted) return
+    const fusedSignal = AbortSignal.any([signal, lifetime.signal])
+    // Specialized recovery (for example route failover) owns the failure before
+    // the generic same-route backoff. The outer listener remains alive until
+    // delegation settles so disposal or turn cancellation wins afterward.
+    const downstream = await settleDownstream(next)
+    if (fusedSignal.aborted) return
+    if (downstream.type === 'error') {
+      ctx.logger.warn(
+        `llm-retry: provider "${provider}" ignored a downstream recovery failure: %o`,
+        downstream.error,
+      )
     }
+    if (downstream.type === 'decision' && downstream.decision?.kind === 'retry') {
+      return downstream.decision
+    }
+    if (policy.mode === 'normal' && !policy.retryableCodes.includes(failure.code)) return
 
     const policyKey = retryPolicyKey(policy)
     const retryState = ctx.sessionProjections.stateOf(agent.session, 'llmRetry') as LlmRetryState

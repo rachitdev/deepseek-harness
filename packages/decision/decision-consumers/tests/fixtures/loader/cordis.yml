@@ -1,0 +1,53 @@
+# Real Loader composition proving active-model failover through the production
+# Agent loop, request-error waterfall, LLM runtime, and durable Session log.
+- id: llm
+  name: '@deepseek-ai/dsh-llm'
+
+- id: sessions
+  name: '@deepseek-ai/dsh-session'
+
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+
+- id: agents
+  name: '@deepseek-ai/dsh-agent'
+
+- id: decision
+  name: '@deepseek-ai/dsh-decision'
+
+# Intentionally mounted before failover: generic retry must delegate to the
+# later, specialized recovery owner before scheduling same-route backoff.
+- id: llm-retry
+  name: '@deepseek-ai/dsh-llm-retry'
+
+- id: failover-fixture-runtime
+  name: ./fixture-runtime.ts
+
+- id: decision-consumers
+  name: '@deepseek-ai/dsh-decision-consumers'
+  config:
+    failover:
+      enabled: true
+      useAllowedModels: false
+      candidates:
+        - provider: fixture
+          model: candidate-a
+        - provider: fixture
+          model: candidate-b
+      triggerCodes:
+        - RATE_LIMIT
+      maxCandidates: 2
+      probeTimeoutMs: 1000
+      probeMaxTokens: 64
+      maxTaskChars: 1000
+
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
+  config:
+    agents: []

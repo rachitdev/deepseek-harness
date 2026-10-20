@@ -1,0 +1,34 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/web/web-search-duckduckgo/README.md
+/:
+  en: daeb8d975715c355
+  zh: 571e050abee33521
+/deepseek-ai-dsh-web-search-duckduckgo:
+  en: 3d2fe83bc9c479f1
+  zh: e2ff288ae29f90fa
+/deepseek-ai-dsh-web-search-duckduckgo/summary:
+  en: 4ca8ec5d544e96d0
+  zh: 5cb7875644407d75
+/deepseek-ai-dsh-web-search-duckduckgo/table-of-contents:
+  en: bf401ec94bd3fa63
+  zh: 94539a6524a2acad
+/deepseek-ai-dsh-web-search-duckduckgo/config:
+  en: e2f972e56ab31a67
+  zh: 0e032fc73b617573
+/deepseek-ai-dsh-web-search-duckduckgo/mapping:
+  en: 1eb0d88f44324b13
+  zh: be12c40b4e3156dd
+/deepseek-ai-dsh-web-search-duckduckgo/dev-note:
+  en: 155c86502c7d8b17
+  zh: c9001accdc3382ce
+/deepseek-ai-dsh-web-search-duckduckgo/model-experience:
+  en: 1650cdd257de402f
+  zh: 9b294d679be827d9
+/deepseek-ai-dsh-web-search-duckduckgo/model-experience/kv-cache-effect:
+  en: 40294c1c31b74824
+  zh: 4420de6a6850c876
+/deepseek-ai-dsh-web-search-duckduckgo/known-limitations-and-deferred-work:
+  en: 396bd69474cf25a6
+  zh: 0b534dc1c1a6dc02

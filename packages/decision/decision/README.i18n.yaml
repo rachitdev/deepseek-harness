@@ -1,0 +1,49 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/decision/decision/README.md
+/:
+  en: e0012d851737aa13
+  zh: 97ada367215ae874
+/deepseek-ai-dsh-decision:
+  en: fe72c21c81cfa0b7
+  zh: c31056207340a137
+/deepseek-ai-dsh-decision/summary:
+  en: a6363e17cac944bd
+  zh: ecb9f541cf6df560
+/deepseek-ai-dsh-decision/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 9aa34fb1dc95d8cf
+/deepseek-ai-dsh-decision/use-this-package:
+  en: 20c4579b989137ac
+  zh: 9d4403d507ff25c0
+/deepseek-ai-dsh-decision/use-this-package/when-to-choose-it:
+  en: d5a4701419953877
+  zh: 53091ba781e49667
+/deepseek-ai-dsh-decision/use-this-package/minimal-configuration:
+  en: 2bbb395fa871fa73
+  zh: 5d4ab6a6e1b7f052
+/deepseek-ai-dsh-decision/use-this-package/asking-a-question:
+  en: 6a143ee97af6454e
+  zh: 3923bee87e934083
+/deepseek-ai-dsh-decision/use-this-package/gating-on-confidence:
+  en: b095e7de8f82f13e
+  zh: 7e54bc5ccbbcb3f8
+/deepseek-ai-dsh-decision/understand-the-implementation:
+  en: 1c4bc6838011342b
+  zh: dd67bc94626f96d6
+/deepseek-ai-dsh-decision/further-exploration:
+  en: 49e6b058d2d72aaf
+  zh: 1d7419ebbf978487
+/deepseek-ai-dsh-decision/dev-note:
+  en: 1e71e408d36e0f44
+  zh: 07931c090fecc200
+/deepseek-ai-dsh-decision/model-experience:
+  en: 5c741d3d70984a25
+  zh: a5d59e21b42ef4c1
+/deepseek-ai-dsh-decision/model-experience/kv-cache-effect:
+  en: 787d37cd1d98d54e
+  zh: 0bf7ff3318440ec1
+/deepseek-ai-dsh-decision/known-limitations-and-deferred-work:
+  en: c875da321cece05f
+  zh: e0e06c46c41415e5

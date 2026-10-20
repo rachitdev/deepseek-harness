@@ -50,6 +50,10 @@ kind: "package-reference"
 | `fetchTimeoutMs` | `30000` | `web_fetch` 的协作式工具调用超时预算（ms） |
 | `searchTimeoutMs` | `30000` | `web_search` 的协作式工具调用超时预算（ms） |
 | `fetchMaxOutputChars` | `200000` | 同步转换的源字符数与单次完整 `web_fetch` 输出的上限 |
+| `fetchGuardrail` | `false` | 在模型可见渲染前请求已挂载的 decision 提供方筛查抓取文本 |
+| `fetchGuardrailReviewThreshold` | `0.30` | 达到该危害概率时扣留文本以供复核 |
+| `fetchGuardrailBlockThreshold` | `0.70` | 达到该危害概率时阻断文本 |
+| `fetchGuardrailMaxStateCharacters` | `8000` | 发送给 decision 提供方的抓取文本最大字符数 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-web)是每个受支持字段及其 JSDoc 的穷尽式真源。`searchMaxQueries` 在完全相同的字符串去重与提供方请求扇出之前限制可接受的数组；校验会在任何搜索开始前拒绝超限数组。超时预算附加到每个工具定义，由 [`@deepseek-ai/dsh-tool-call-timeout-policy`](../../guard/timeout-policy/README.zh.md) 强制执行；面向模型的 schema 不公开超时参数。
 
@@ -65,7 +69,7 @@ web_search({ queries: ['deepseek harness documentation'] })
 
 ### 使用 web_fetch
 
-用一个 `url` 调用 `web_fetch`。HTML 主体经过过滤后渲染为 markdown（含 GFM 表格与删除线）；文本主体在不可信内容提示下原样通过。非 2xx 状态会在结果中报告，而不是作为错误抛出。截断内容会追加 `(Content truncated. Fetch a more specific URL or section for the full text.)`。
+用一个 `url` 调用 `web_fetch`。HTML 主体经过过滤后渲染为 markdown（含 GFM 表格与删除线）；文本主体在不可信内容提示下原样通过。启用 `fetchGuardrail` 时，已挂载的 decision 提供方会在渲染前评估提示注入与凭据收集危害；`review` 与 `block` 判定会用有界诊断替换抓取主体，提供方错误则使工具调用失败，而不是返回未复核文本。非 2xx 状态会在结果中报告，而不是作为错误抛出。截断内容会追加 `(Content truncated. Fetch a more specific URL or section for the full text.)`。
 
 ```text
 web_fetch({ url: 'https://example.com' })

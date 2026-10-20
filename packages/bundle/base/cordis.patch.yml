@@ -99,6 +99,25 @@
     - id: llm-retry
       name: '@deepseek-ai/dsh-llm-retry'
 
+    # Optional calibrated decision stack. Profiles may enable all four rows
+    # together and configure decision-consumers.failover; shipped base behavior
+    # remains unchanged until that explicit opt-in.
+    - id: decision
+      name: '@deepseek-ai/dsh-decision'
+      disabled: true
+
+    - id: decision-jev
+      name: '@deepseek-ai/dsh-decision-jev'
+      disabled: true
+
+    - id: decision-laya
+      name: '@deepseek-ai/dsh-decision-laya'
+      disabled: true
+
+    - id: decision-consumers
+      name: '@deepseek-ai/dsh-decision-consumers'
+      disabled: true
+
     # Live Config forms persist through the active profile patch.
 
     # Live configuration forms persist through the launcher's profile.

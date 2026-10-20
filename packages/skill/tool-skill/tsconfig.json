@@ -27,6 +27,12 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../decision/decision"
+    },
+    {
+      "path": "../../decision/decision-consumers"
+    },
+    {
       "path": "../skill"
     },
     {

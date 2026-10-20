@@ -9,7 +9,7 @@
  */
 
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, isContextWindowExceededError, isQuotaExceededError, LlmError, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
+import { CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, isContextWindowExceededError, isQuotaExceededError, LlmError, MODEL_UNAVAILABLE_CODE, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, StreamChunk, TokenUsage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { isContextOverflow } from '@earendil-works/pi-ai/utils/overflow'
 import type { AssistantMessage, AssistantMessageEvent, Usage as PiUsage } from '@earendil-works/pi-ai'
@@ -41,8 +41,11 @@ export function mapUsage(usage: PiUsage): TokenUsage {
 // us capture the cause ourselves), classify on `code`/`cause` instead of text.
 function classifyPiAiError(message: string): string {
   if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
-  if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE
+  if (/\b402\b/i.test(message) || isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE
   if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'
+  // A catalog miss is a dead route, not a bad body. Check it before the generic
+  // 400 rule so failover can switch models instead of closing the turn.
+  if (/not available in the active live catalog|model is unavailable/i.test(message)) return MODEL_UNAVAILABLE_CODE
   // A rejected request body (gateway or provider size cap): resending the
   // same request cannot succeed, so it is invalid, not transient.
   if (/\b413\b|failed to buffer the request body:\s*length limit exceeded|payload too large|request body too large/i.test(message)) return 'INVALID_REQUEST'

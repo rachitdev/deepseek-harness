@@ -37,6 +37,7 @@ export interface SettingsOnboardingStep {
  * Registrant-private injected share of the settings shell (assembled in
  * apply): connection state and ledger projections arrive as hook-compartment
  * sources, while the reconnect command remains a plain callback.
+ * Loopback hosts also receive `onShutdown` for the sidebar-foot shut-down row.
  */
 export type SettingsRootInjected = {
   /** Request the current shell-owned update action. */
@@ -55,6 +56,11 @@ export type SettingsRootInjected = {
     /** settings.onboarding ledger projected into coordinator order. */
     onboardingSteps: HostObservable<readonly SettingsOnboardingStep[]>
   }
+  /**
+   * Request a harness process exit. Present only on loopback connections;
+   * omitted when the GUI talks to a remote host.
+   */
+  onShutdown?: () => void
 }
 
 /**

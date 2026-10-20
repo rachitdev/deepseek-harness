@@ -16,7 +16,7 @@ import clsx from 'clsx'
 import {
   ConnectionIndicator, Tooltip, useModalLayer,
   IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconCloseOutlineRegular, IconDataOutlineMedium,
-  IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium,
+  IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconStopFillMedium, IconUserOutlineMedium,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ConnectionIndicatorState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsRootComponentProps, SettingsSectionRow } from './shell-contract.ts'
@@ -112,7 +112,7 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
 export function SettingsRoot(props: SettingsRootComponentProps) {
   const {
     wide, reconnect, useConnectionState, useSections, useOnboardingSteps, useSessions, renderSlot, t,
-    useDesktopUpdate, openDesktopUpdate, useStore, actions, useShortcuts,
+    useDesktopUpdate, openDesktopUpdate, useStore, actions, useShortcuts, onShutdown,
   } = props
   const { open, activeId } = useStore(state => state)
   const shortcut = useShortcuts(rows => rows.find(row => row.id === 'settings.open'))
@@ -122,6 +122,13 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
   const [showRecovery, setShowRecovery] = useState(false)
   const [holdConnecting, setHoldConnecting] = useState(false)
   const connectingShownAt = useRef<number | undefined>(undefined)
+  const [shuttingDown, setShuttingDown] = useState(false)
+  const requestShutdown = useCallback(() => {
+    if (onShutdown === undefined || shuttingDown) return
+    if (!window.confirm(t('shutdown.confirm'))) return
+    setShuttingDown(true)
+    onShutdown()
+  }, [onShutdown, shuttingDown, t])
 
   // The ledger tick keeps the nav rows fresh: registrants re-register with
   // freshly localized text on locale change, and the trigger/header/close
@@ -243,6 +250,19 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
         <DesktopUpdateIndicator wide={wide} hidden={connectionIndicator !== undefined && desktopUpdate.presentation?.phase !== 'installing'}
           t={t} view={desktopUpdate} onOpen={openDesktopUpdate} />
       </div>
+      {onShutdown !== undefined && (
+        <button
+          type="button"
+          className={clsx(css.trigger, css.shutdown, !wide && css.rail)}
+          disabled={shuttingDown}
+          onClick={requestShutdown}
+        >
+          <IconStopFillMedium size={wide ? 16 : 18} />
+          {wide
+            ? <span className={css.triggerLabel}>{shuttingDown ? `${t('shutdown')}…` : t('shutdown')}</span>
+            : <span className={css.hiddenLabel}>{t('shutdown')}</span>}
+        </button>
+      )}
       {open && (
         <SettingsPanel
           rows={rows}

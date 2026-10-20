@@ -4,6 +4,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
+import DecisionRuntime, { type DecisionRequest, type DecisionResult } from '@deepseek-ai/dsh-decision'
 import { createUserMessage, ToolCallId, type Message } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed, MessageSource } from '@deepseek-ai/dsh-llm'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
@@ -51,7 +52,18 @@ async function writeSkill(root: string, name: string, description: string, body:
   await writeFile(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`)
 }
 
-async function setup(home: string, config: toolSkill.Config = {}): Promise<Context> {
+async function writePolicySkill(root: string, name: string, description: string, policy: string, body: string): Promise<void> {
+  const dir = join(root, name)
+  await mkdir(dir, { recursive: true })
+  const policyLines = policy === '' ? '' : `${policy}\n`
+  await writeFile(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n${policyLines}---\n\n${body}\n`)
+}
+
+async function setup(
+  home: string,
+  config: toolSkill.Config = {},
+  decisionEvaluate?: (request: DecisionRequest, signal?: AbortSignal) => Promise<DecisionResult>,
+): Promise<Context> {
   const ctx = new Context()
   provideWorkingDirectoryFixture(ctx, home)
   await ctx.plugin(SystemPrompt)
@@ -59,6 +71,10 @@ async function setup(home: string, config: toolSkill.Config = {}): Promise<Conte
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SkillRegistry)
   await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+  if (decisionEvaluate !== undefined) {
+    await ctx.plugin(DecisionRuntime, { provider: 'test-decision' })
+    ctx.decision.registerProvider({ id: 'test-decision', available: () => true, evaluate: decisionEvaluate })
+  }
   await ctx.plugin(toolSkill, config)
   return ctx
 }
@@ -842,6 +858,85 @@ describe('dsh-tool-skill', () => {
     expect(block.text).not.toContain('# Skill:')
   })
 
+  it('adjudicates a model-selected skill and loads parallel instructions while deferring later skills', async () => {
+    const home = await tempDir('tool-jev-adjudication')
+    let call = 0
+    const ctx = await setup(home, { skillAdjudication: true }, () => {
+      call += 1
+      if (call === 1) {
+        return Promise.resolve({
+          providerId: 'test-decision',
+          answers: {
+            primary: { type: 'choice', choice: 'architecture', probabilities: { architecture: 0.8, 'diagram-design': 0.15, 'code-review': 0.05 } },
+            'relevant:diagram-design': { type: 'boolean', probability: 0.9 },
+            'relevant:architecture': { type: 'boolean', probability: 0.95 },
+            'relevant:code-review': { type: 'boolean', probability: 0.1 },
+          },
+        })
+      }
+      return Promise.resolve({
+        providerId: 'test-decision',
+        answers: {
+          primary: { type: 'choice', choice: 'architecture', probabilities: { architecture: 0.9, 'diagram-design': 0.1 } },
+          'phase:diagram-design': { type: 'choice', choice: 'later_depth', probabilities: { primary_now: 0.02, parallel_now: 0.08, later_depth: 0.88, not_needed: 0.02 } },
+          'phase:architecture': { type: 'choice', choice: 'primary_now', probabilities: { primary_now: 0.95, parallel_now: 0.02, later_depth: 0.02, not_needed: 0.01 } },
+        },
+      })
+    })
+    for (const skill of [
+      { name: 'diagram-design', description: 'Render an SVG diagram.', content: 'DIAGRAM INSTRUCTIONS' },
+      { name: 'architecture', description: 'Design technical architecture.', content: 'ARCHITECTURE INSTRUCTIONS' },
+      { name: 'code-review', description: 'Review source code.', content: 'REVIEW INSTRUCTIONS' },
+    ]) ctx.skills.register({ ...skill, source: 'runtime', provider: 'runtime' })
+    const agent = agentForCwd(home)
+    agent.session.append('turn/start', { turn: 1 })
+    agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'Design the architecture and then provide its SVG diagram.' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+
+    const result = await ctx.agents.withInitiator(agent, () => ctx.tools.execute({
+      signal: testToolSignal,
+      callId: ToolCallId('jev-skill'),
+      name: 'skill',
+      arguments: { name: 'diagram-design' },
+      agent,
+    }))
+
+    expect(result.isError).toBe(false)
+    const text = result.content[0]
+    if (text?.type !== 'text') throw new Error('expected text tool result')
+    expect(text.text).toContain('DSH proposed: diagram-design')
+    expect(text.text).toContain('Primary now: architecture')
+    expect(text.text).toContain('ARCHITECTURE INSTRUCTIONS')
+    expect(text.text).toContain('Later-depth skills: diagram-design')
+    expect(text.text).not.toContain('DIAGRAM INSTRUCTIONS')
+    expect(call).toBe(2)
+  })
+
+  it('preserves the model-selected skill when JEV adjudication fails', async () => {
+    const home = await tempDir('tool-jev-fallback')
+    const ctx = await setup(home, { skillAdjudication: true }, () => Promise.reject(new Error('decision unavailable')))
+    ctx.skills.register({ name: 'code-review', description: 'Review source code.', source: 'runtime', provider: 'runtime', content: 'REVIEW INSTRUCTIONS' })
+    ctx.skills.register({ name: 'architecture', description: 'Design architecture.', source: 'runtime', provider: 'runtime', content: 'ARCHITECTURE INSTRUCTIONS' })
+    const agent = agentForCwd(home)
+    openMessageTurn(agent.session)
+
+    const result = await ctx.agents.withInitiator(agent, () => ctx.tools.execute({
+      signal: testToolSignal,
+      callId: ToolCallId('jev-fallback'),
+      name: 'skill',
+      arguments: { name: 'code-review' },
+      agent,
+    }))
+
+    expect(result.isError).toBe(false)
+    const text = result.content[0]
+    if (text?.type !== 'text') throw new Error('expected text tool result')
+    expect(text.text).toContain('REVIEW INSTRUCTIONS')
+    expect(text.text).not.toContain('<skill-routing>')
+  })
+
   it('renders provider-managed resource hints for non-local skills', async () => {
     const home = await tempDir('tool-resource-hints')
     const ctx = await setup(home)
@@ -998,12 +1093,6 @@ describe('dsh-tool-skill', () => {
 })
 
 describe('user-explicit invocation injection', () => {
-  async function writePolicySkill(root: string, name: string, description: string, policy: string, body: string): Promise<void> {
-    const dir = join(root, name)
-    await mkdir(dir, { recursive: true })
-    const policyLines = policy === '' ? '' : `${policy}\n`
-    await writeFile(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n${policyLines}---\n\n${body}\n`)
-  }
 
   function gesture(text: string): UserMessage {
     return createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
@@ -1125,5 +1214,96 @@ describe('user-explicit invocation injection', () => {
       .filter(message => (message.source as { kind?: string }).kind === 'skill-invocation')
       .map(message => (message.source as { name: string }).name)
     expect(invoked).toEqual(['shared-skill'])
+  })
+})
+
+describe('pinned system-prompt injection', () => {
+
+  const PINNED = 'dsh-design-thinking-general'
+
+  async function pinHarness(config: toolSkill.Config = {}): Promise<{ ctx: Context; agent: Agent; home: string }> {
+    const home = await tempDir('pinned')
+    await writePolicySkill(join(home, '.dsh', 'skills'), PINNED, 'DTGS router', '', 'Route every open-ended ask through the intake gate.')
+    const ctx = await setup(home, config)
+    return { ctx, agent: agentForCwd(home), home }
+  }
+
+  async function pinnedSections(
+    ctx: Context,
+    agent: Agent,
+  ): Promise<{ section: { name: string; text: string } | undefined; rendered: string; lastName: string | undefined }> {
+    const assembly = await ctx.systemPrompt.assemble({ agent, scope: agent })
+    const section = assembly.sections.find(entry => entry.name === `skill:pinned:${PINNED}`)
+    return {
+      section,
+      rendered: renderPrompt(assembly),
+      lastName: assembly.sections.at(-1)?.name,
+    }
+  }
+
+  it('joins the default pinned skill body to every assembled system prompt', async () => {
+    const { ctx, agent } = await pinHarness()
+    const { section, rendered, lastName } = await pinnedSections(ctx, agent)
+    expect(section).toBeDefined()
+    expect(section!.text).toContain('<skill_content name="dsh-design-thinking-general">')
+    expect(section!.text).toContain('Route every open-ended ask through the intake gate.')
+    // Instruction material sits after the registry-built sections, closest to
+    // the conversation, exactly where the invocation injection lands in a step.
+    expect(lastName).toBe(`skill:pinned:${PINNED}`)
+    expect(rendered).toContain('Route every open-ended ask through the intake gate.')
+  })
+
+  it('resolves pinned bodies with the agent cwd, so a project copy wins', async () => {
+    const { ctx } = await pinHarness()
+    const project = await tempDir('pinned-project')
+    await writePolicySkill(join(project, '.dsh', 'skills'), PINNED, 'DTGS router (project)', '', 'Project-layer routing rules.')
+    const projectAgent = agentForCwd(project)
+    const { section } = await pinnedSections(ctx, projectAgent)
+    expect(section!.text).toContain('Project-layer routing rules.')
+    expect(section!.text).not.toContain('Route every open-ended ask through the intake gate.')
+  })
+
+  it('an empty pinnedSkills array disables the injection', async () => {
+    const { ctx, agent } = await pinHarness({ pinnedSkills: [] })
+    const { section } = await pinnedSections(ctx, agent)
+    expect(section).toBeUndefined()
+  })
+
+  it('a pinned name missing from disk degrades to catalog-only routing', async () => {
+    const { ctx, agent } = await pinHarness({ pinnedSkills: ['absent-router-skill'] })
+    const { section, rendered } = await pinnedSections(ctx, agent)
+    expect(section).toBeUndefined()
+    expect(rendered).not.toContain('<skill_content')
+  })
+
+  it('a pinned skill that lost model invocability is not injected', async () => {
+    const home = await tempDir('pinned-hidden')
+    await writePolicySkill(
+      join(home, '.dsh', 'skills'),
+      PINNED,
+      'DTGS router',
+      'disable-model-invocation: true',
+      'Instructions must not be disclosed.',
+    )
+    const ctx = await setup(home)
+    const agent = agentForCwd(home)
+    const assembly = await ctx.systemPrompt.assemble({ agent, scope: agent })
+    expect(assembly.sections.find(entry => entry.name === `skill:pinned:${PINNED}`)).toBeUndefined()
+  })
+
+  it('a pinned skill with malformed frontmatter does not fail the assembly', async () => {
+    const home = await tempDir('pinned-broken')
+    const dir = join(home, '.dsh', 'skills', PINNED)
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'SKILL.md'), '---\nname: [unclosed\n\nBroken body.')
+    const ctx = await setup(home)
+    const agent = agentForCwd(home)
+    const assembly = await ctx.systemPrompt.assemble({ agent, scope: agent })
+    expect(assembly.sections.find(entry => entry.name === `skill:pinned:${PINNED}`)).toBeUndefined()
+  })
+
+  it('an invalid pinnedSkills entry fails at plugin load', async () => {
+    const home = await tempDir('pinned-invalid')
+    await expect(setup(home, { pinnedSkills: ['Not_Valid'] })).rejects.toThrow('not a valid skill name')
   })
 })

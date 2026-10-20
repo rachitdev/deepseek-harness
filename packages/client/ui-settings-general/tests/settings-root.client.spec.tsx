@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { ShortcutCatalogEntry, ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { useEffect, useState } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createSettingsShellStore } from '../src/client/shell-store.ts'
@@ -47,6 +47,7 @@ function mount({
   desktopUpdate = { failed: false, opening: false },
   onboardingActive = true,
   mainView = true,
+  onShutdown,
   rows = [
     { id: 'general', order: 0, label: 'General' },
     { id: 'models', order: 10, label: 'Models' },
@@ -64,6 +65,7 @@ function mount({
   desktopUpdate?: DesktopUpdateView
   onboardingActive?: boolean
   mainView?: boolean
+  onShutdown?: () => void
   rows?: Row[]
   steps?: Step[]
 } = {}) {
@@ -130,6 +132,7 @@ function mount({
       return select(current)
     },
     renderSlot,
+    ...onShutdown === undefined ? {} : { onShutdown },
   }
   const view = render(<SettingsRoot {...props} />)
   const bump = (next: Row[]) => {
@@ -161,6 +164,36 @@ function mount({
   }
   return { view, renderSlot, bump, listeners, reconnect, setConnectionState, setDesktopUpdate, setShortcuts, setOnboardingActive }
 }
+
+describe('SettingsRoot Shutdown DSH row', () => {
+  it('omits the row when the host offers no shutdown request', () => {
+    mount()
+    expect(screen.queryByRole('button', { name: en.shutdown })).toBeNull()
+  })
+
+  it('renders the row after the Settings trigger and confirms before requesting shutdown', () => {
+    const onShutdown = vi.fn()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    onTestFinished(() => { confirm.mockRestore() })
+    mount({ onShutdown })
+    const settings = screen.getByRole('button', { name: en.trigger })
+    const shutdown = screen.getByRole('button', { name: en.shutdown })
+    expect(settings.compareDocumentPosition(shutdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(shutdown)
+    expect(confirm).toHaveBeenCalledWith(en['shutdown.confirm'])
+    expect(onShutdown).toHaveBeenCalledTimes(1)
+    expect((shutdown as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('keeps the row idle when confirmation is declined', () => {
+    const onShutdown = vi.fn()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    onTestFinished(() => { confirm.mockRestore() })
+    mount({ onShutdown })
+    fireEvent.click(screen.getByRole('button', { name: en.shutdown }))
+    expect(onShutdown).not.toHaveBeenCalled()
+  })
+})
 
 function openPanel() {
   const trigger = screen.getByRole('button', { name: 'Settings' })

@@ -2264,6 +2264,18 @@ importers:
       '@deepseek-ai/dsh-credentials-local':
         specifier: workspace:*
         version: link:../../credentials/credentials-local
+      '@deepseek-ai/dsh-decision':
+        specifier: workspace:*
+        version: link:../../decision/decision
+      '@deepseek-ai/dsh-decision-consumers':
+        specifier: workspace:*
+        version: link:../../decision/decision-consumers
+      '@deepseek-ai/dsh-decision-jev':
+        specifier: workspace:*
+        version: link:../../decision/decision-jev
+      '@deepseek-ai/dsh-decision-laya':
+        specifier: workspace:*
+        version: link:../../decision/decision-laya
       '@deepseek-ai/dsh-deepseek-account-platform':
         specifier: workspace:*
         version: link:../../credentials/deepseek-account-platform
@@ -7427,6 +7439,119 @@ importers:
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:*
         version: link:../../host/webserver
+
+  packages/decision/decision:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:*
+        version: link:../../llm/llm
+
+  packages/decision/decision-consumers:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:*
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-agent-loop':
+        specifier: workspace:*
+        version: link:../../core/agent-loop
+      '@deepseek-ai/dsh-app-boot':
+        specifier: workspace:*
+        version: link:../../boot/app-boot
+      '@deepseek-ai/dsh-decision':
+        specifier: workspace:*
+        version: link:../decision
+      '@deepseek-ai/dsh-decision-jev':
+        specifier: workspace:*
+        version: link:../decision-jev
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:*
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-llm-retry':
+        specifier: workspace:*
+        version: link:../../llm/llm-retry
+      '@deepseek-ai/dsh-loader-smoke':
+        specifier: workspace:*
+        version: link:../../test-support/loader-smoke
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:*
+        version: link:../../core/session
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:*
+        version: link:../../session/session-projection
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:*
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tool-subagent':
+        specifier: workspace:*
+        version: link:../../subagent/tool-subagent
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:*
+        version: link:../../core/tools
+
+  packages/decision/decision-jev:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-credentials':
+        specifier: workspace:*
+        version: link:../../credentials/credentials
+      '@deepseek-ai/dsh-decision':
+        specifier: workspace:*
+        version: link:../decision
+      '@deepseek-ai/dsh-launch-environment':
+        specifier: workspace:*
+        version: link:../../util/launch-environment
+
+  packages/decision/decision-laya:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-decision':
+        specifier: workspace:*
+        version: link:../decision
+      '@deepseek-ai/dsh-launch-environment':
+        specifier: workspace:*
+        version: link:../../util/launch-environment
+
+  packages/decision/decision-llm:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-decision':
+        specifier: workspace:*
+        version: link:../decision
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:*
+        version: link:../../llm/llm
 
   packages/deliverables/tool-present:
     dependencies:
@@ -13361,6 +13486,12 @@ importers:
       '@deepseek-ai/dsh-agent-loop-testkit':
         specifier: workspace:*
         version: link:../../test-support/agent-loop-testkit
+      '@deepseek-ai/dsh-decision':
+        specifier: workspace:*
+        version: link:../../decision/decision
+      '@deepseek-ai/dsh-decision-consumers':
+        specifier: workspace:*
+        version: link:../../decision/decision-consumers
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../../llm/llm
@@ -15112,6 +15243,12 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:*
         version: link:../../core/agent
+      '@deepseek-ai/dsh-decision':
+        specifier: workspace:*
+        version: link:../../decision/decision
+      '@deepseek-ai/dsh-decision-consumers':
+        specifier: workspace:*
+        version: link:../../decision/decision-consumers
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../../llm/llm
@@ -15254,6 +15391,19 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:*
         version: link:../../core/session
+      '@deepseek-ai/dsh-web':
+        specifier: workspace:*
+        version: link:../web
+
+  packages/web/web-search-duckduckgo:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
       '@deepseek-ai/dsh-web':
         specifier: workspace:*
         version: link:../web

@@ -1,0 +1,55 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/decision/decision-consumers/README.md
+/:
+  en: cf8a8ef4df616ab4
+  zh: 02160f72d77de2ce
+/deepseek-ai-dsh-decision-consumers:
+  en: 599cdbb5a473b92c
+  zh: fcc0c018577f6fe8
+/deepseek-ai-dsh-decision-consumers/summary:
+  en: 8b032cdff2d3de8f
+  zh: be91e34a6c3a3a9b
+/deepseek-ai-dsh-decision-consumers/table-of-contents:
+  en: 280a9fb676cf5705
+  zh: 261ae3e78c5edcb1
+/deepseek-ai-dsh-decision-consumers/use-this-package:
+  en: fecac92cb11e9640
+  zh: 52c550a8307fa197
+/deepseek-ai-dsh-decision-consumers/the-fourteen-consumers:
+  en: ada755399ab0615b
+  zh: e3e04905f00c469a
+/deepseek-ai-dsh-decision-consumers/live-model-failover:
+  en: d034713086897f58
+  zh: f80498ecbc86a8e8
+/deepseek-ai-dsh-decision-consumers/live-recall-filter:
+  en: 88cea55e591fb6a6
+  zh: ebc1e34670f004ae
+/deepseek-ai-dsh-decision-consumers/understand-the-implementation:
+  en: 3fd906195905f163
+  zh: b3f451a945e82a13
+/deepseek-ai-dsh-decision-consumers/further-exploration:
+  en: 6248a35982c31859
+  zh: a32dfccec808e058
+/deepseek-ai-dsh-decision-consumers/dev-note:
+  en: 9e4c3e69a6ac871c
+  zh: c82862f622f020eb
+/deepseek-ai-dsh-decision-consumers/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-decision-consumers/model-experience/filtered-recall-message:
+  en: 443df019e068c1a8
+  zh: c7323f0e995b85e2
+/deepseek-ai-dsh-decision-consumers/model-experience/filtered-recall-message/what-the-model-sees:
+  en: f14e0645c967b62a
+  zh: 1579429e80ada819
+/deepseek-ai-dsh-decision-consumers/model-experience/filtered-recall-message/token-effect:
+  en: 0c3e82989f5e5e3c
+  zh: 5170c0e842019896
+/deepseek-ai-dsh-decision-consumers/model-experience/filtered-recall-message/kv-cache-effect:
+  en: a3e819684b42bc80
+  zh: af321e9b0aeea6f4
+/deepseek-ai-dsh-decision-consumers/known-limitations-and-deferred-work:
+  en: 5b163313ef563603
+  zh: 8615e5e4602581c1

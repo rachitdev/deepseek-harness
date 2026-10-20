@@ -1,0 +1,43 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/decision/decision-laya/README.md
+/:
+  en: 05ff375b1e8d0f00
+  zh: 0054bbc562ab249e
+/deepseek-ai-dsh-decision-laya:
+  en: ed64772ea9892ad3
+  zh: c0fca64526b75eac
+/deepseek-ai-dsh-decision-laya/summary:
+  en: 1309113afe60ff19
+  zh: 543cb7d9427e175f
+/deepseek-ai-dsh-decision-laya/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 778f0626721054c8
+/deepseek-ai-dsh-decision-laya/use-this-package:
+  en: a8bc1d1f3a9f65ae
+  zh: eaeff8090c75444a
+/deepseek-ai-dsh-decision-laya/use-this-package/when-to-choose-it:
+  en: dbc2df2be0554cb5
+  zh: 1692424e6655e30e
+/deepseek-ai-dsh-decision-laya/use-this-package/minimal-configuration:
+  en: 6b6867109bebc855
+  zh: 8c466124cb704975
+/deepseek-ai-dsh-decision-laya/understand-the-implementation:
+  en: b52763e13f8bb4b0
+  zh: 945d3b03d6b5fa10
+/deepseek-ai-dsh-decision-laya/further-exploration:
+  en: fe84555be7223d06
+  zh: a0af538703b40f8d
+/deepseek-ai-dsh-decision-laya/model-experience:
+  en: ee770a5867ade055
+  zh: 33644cec84542aca
+/deepseek-ai-dsh-decision-laya/model-experience/kv-cache-effect:
+  en: 35eb996034fec06a
+  zh: 7093782bc3fe0f23
+/deepseek-ai-dsh-decision-laya/known-limitations-and-deferred-work:
+  en: c67c085f5aefcc09
+  zh: 07639897bb88bafd
+/deepseek-ai-dsh-decision-laya/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

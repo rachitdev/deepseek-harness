@@ -6,6 +6,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { FetchGuardrailVerdict } from '@deepseek-ai/dsh-decision-consumers'
 import TurndownService from 'turndown'
 import { gfm } from '@joplin/turndown-plugin-gfm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -434,6 +435,13 @@ export function presentFetchResult(args: { url: string }, result: ToolResult): W
   }
 }
 
+/** Decision-backed guard applied after fetch and before model-visible rendering. */
+export type FetchContentGuard = (
+  url: string,
+  content: string,
+  signal: AbortSignal,
+) => Promise<FetchGuardrailVerdict>
+
 /**
  * Register the `web_fetch` tool and its scope-aware system-prompt guidance.
  *
@@ -443,8 +451,14 @@ export function presentFetchResult(args: { url: string }, result: ToolResult): W
  *   `ToolDefinition.timeoutMs` for `@deepseek-ai/dsh-tool-call-timeout-policy` to enforce.
  * @param maxOutputChars - cap on the complete rendered tool output (see
  *   {@link formatFetchOutput}) and on source characters converted synchronously.
+ * @param guard - optional decision-backed screen that withholds unsafe content.
  */
-export function applyWebFetchTool(ctx: Context, timeoutMs: number, maxOutputChars: number): void {
+export function applyWebFetchTool(
+  ctx: Context,
+  timeoutMs: number,
+  maxOutputChars: number,
+  guard?: FetchContentGuard,
+): void {
   ctx.systemPrompt.section({
     name: 'tool:web_fetch',
     order: ctx.systemPrompt.getSectionOrder('TOOL_WEB_FETCH'),
@@ -502,6 +516,20 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number, maxOutputChar
         { url: input.url },
         exec.signal,
       )
+      if (guard !== undefined) {
+        const verdict = await guard(result.url, result.body.content, exec.signal)
+        if (verdict.verdict !== 'pass') {
+          return {
+            url: result.url,
+            statusCode: result.statusCode,
+            body: {
+              kind: 'text' as const,
+              content: `Fetched content withheld by the JEV guardrail (${verdict.verdict}; prompt-injection probability ${verdict.injectionProbability.toFixed(2)}, credential-harvest probability ${verdict.credentialHarvestProbability.toFixed(2)}).`,
+            },
+            truncated: true,
+          }
+        }
+      }
       return {
         url: result.url,
         statusCode: result.statusCode,

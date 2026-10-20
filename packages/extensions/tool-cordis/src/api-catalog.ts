@@ -911,6 +911,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'decision',
+    summary: 'The decision service.',
+    description: 'The decision service. Registered as `ctx.decision` (one instance per context).\n\nSelection semantics (resolved at execution time, never order-dependent):\n\n- A configured id that is registered and `available()` → that provider.\n- A configured id not registered → `DECISION_PROVIDER_CONFIGURED_MISSING`, unless `fallbackProvider` is registered and usable.\n- A configured id registered but unavailable → `DECISION_PROVIDER_CONFIGURED_UNAVAILABLE`, unless `fallbackProvider` is registered and usable.\n- A configured fallback id is invoked only after the primary cannot answer, never on a successful primary call.\n- No id configured, exactly one registered usable non-fallback provider → that provider.\n- No id configured, multiple usable non-fallback providers → `DECISION_PROVIDER_AMBIGUOUS`.\n- No id configured, no usable provider → `DECISION_PROVIDER_UNAVAILABLE`.',
+    methods: [
+      {
+        signature: 'registerProvider(provider: DecisionProvider): () => void',
+        description: 'Register a decision provider.',
+        parameters: [{ name: 'provider', description: 'the backend to register; its `id` must be unique within the seam.' }],
+        returns: 'a disposer that removes this registration.',
+      },
+      {
+        signature: 'async evaluate(request: DecisionRequest, signal?: AbortSignal): Promise<DecisionResult>',
+        description: 'Answer every question in one request through the selected provider, or trigger the fallback provider on-demand if the primary fails to respond.',
+        parameters: [{ name: 'request', description: 'the state and the questions asked about it.' }, { name: 'signal', description: 'optional cancellation for the provider call.' }],
+        returns: 'the answers, keyed identically to `request.questions`.',
+      },
+    ],
+  },
+  {
     key: 'deepseekAccount',
     summary: 'Account operations; only Host consumers can obtain a request credential.',
     description: 'Account operations; only Host consumers can obtain a request credential.',
@@ -5314,6 +5333,50 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface DailyScheduleRecord {\n    readonly id: ScheduleId;\n    readonly kind: \'daily\';\n    readonly title: string;\n    readonly prompt: string;\n    readonly time: string;\n    readonly timeZone: string;\n    readonly scheduledAt: string;\n}',
   },
   {
+    name: 'DecisionAnswer',
+    declaration: 'export type DecisionAnswer = DecisionChoiceAnswer | DecisionScoreAnswer | DecisionBooleanAnswer;',
+  },
+  {
+    name: 'DecisionBooleanAnswer',
+    declaration: 'export interface DecisionBooleanAnswer {\n    readonly type: \'boolean\';\n    readonly probability: number;\n}',
+  },
+  {
+    name: 'DecisionBooleanQuestion',
+    declaration: 'export interface DecisionBooleanQuestion {\n    readonly type: \'boolean\';\n    readonly instructions: string;\n}',
+  },
+  {
+    name: 'DecisionChoiceAnswer',
+    declaration: 'export interface DecisionChoiceAnswer {\n    readonly type: \'choice\';\n    readonly choice: string;\n    readonly probabilities: Readonly<Record<string, number>>;\n}',
+  },
+  {
+    name: 'DecisionChoiceQuestion',
+    declaration: 'export interface DecisionChoiceQuestion {\n    readonly type: \'choice\';\n    readonly instructions: string;\n    readonly criteria: Readonly<Record<string, string>>;\n}',
+  },
+  {
+    name: 'DecisionProvider',
+    declaration: 'export interface DecisionProvider {\n    readonly id: string;\n    available(): boolean;\n    evaluate(request: DecisionRequest, signal?: AbortSignal): Promise<DecisionResult>;\n}',
+  },
+  {
+    name: 'DecisionQuestion',
+    declaration: 'export type DecisionQuestion = DecisionChoiceQuestion | DecisionScoreQuestion | DecisionBooleanQuestion;',
+  },
+  {
+    name: 'DecisionRequest',
+    declaration: 'export interface DecisionRequest {\n    readonly state: string;\n    readonly questions: Readonly<Record<string, DecisionQuestion>>;\n}',
+  },
+  {
+    name: 'DecisionResult',
+    declaration: 'export interface DecisionResult {\n    readonly answers: Readonly<Record<string, DecisionAnswer>>;\n    readonly providerId: string;\n}',
+  },
+  {
+    name: 'DecisionScoreAnswer',
+    declaration: 'export interface DecisionScoreAnswer {\n    readonly type: \'score\';\n    readonly score: number;\n    readonly probabilities: Readonly<Record<string, number>>;\n}',
+  },
+  {
+    name: 'DecisionScoreQuestion',
+    declaration: 'export interface DecisionScoreQuestion {\n    readonly type: \'score\';\n    readonly instructions: string;\n    readonly criteria: readonly string[];\n}',
+  },
+  {
     name: 'DeepSeekLlmApiExtensionMap',
     declaration: 'export interface DeepSeekLlmApiExtensionMap {\n}',
   },
@@ -7636,10 +7699,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SignInErrorCode',
     declaration: 'export type SignInErrorCode = \'no-response\' | \'network\' | \'protocol\' | \'expired\' | \'storage\';',
-  },
-  {
-    name: 'SkillCandidate',
-    declaration: 'export interface SkillCandidate extends SkillSummary {\n    readonly rank: number;\n    readonly locator: unknown;\n    readonly metadata?: Readonly<Record<string, unknown>>;\n}',
   },
   {
     name: 'SkillCatalogSnapshot',

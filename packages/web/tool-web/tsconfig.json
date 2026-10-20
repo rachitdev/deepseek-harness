@@ -19,6 +19,12 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../decision/decision"
+    },
+    {
+      "path": "../../decision/decision-consumers"
+    },
+    {
       "path": "../../core/tools"
     },
     {
