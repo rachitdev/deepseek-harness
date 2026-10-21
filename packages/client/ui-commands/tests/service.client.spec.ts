@@ -577,6 +577,76 @@ describe('decorations (bare-invocation UI on host commands)', () => {
   })
 })
 
+describe('open (token-free invocation)', () => {
+  it('opens a popupSelect contribution for the session, and a pick consumes nothing from the draft', async () => {
+    const { command, mint, focuses } = await bench()
+    const onSelect = vi.fn()
+    command.register(themeContribution({ ui: themeUi({ onSelect }) }))
+    const scope = mint('s1')
+    const consumes: ConsumeTokenRequest[] = []
+    scope.ctx.on('slash/input-consume-token', (r) => { consumes.push(r); return true })
+    expect(command.open('theme', proj('s1'))).toBe(true)
+    const popup = command.popupFor(scope.ctx)
+    await vi.waitFor(() => { expect(popup.state.getSnapshot()).toMatchObject({ open: true, command: 'theme', status: 'ready' }) })
+    await popup.select(0)
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith({ id: 'dark', label: 'Dark' }, proj('s1'))
+    expect(consumes).toEqual([])
+    expect(popup.state.getSnapshot().open).toBe(false)
+    expect(focuses).toEqual([sid('s1')])
+  })
+
+  it('refuses unknown, unavailable, action, and scope-less invocations without opening anything', async () => {
+    const { command, mint } = await bench()
+    const scope = mint('s1')
+    expect(command.open('theme', proj('s1'))).toBe(false)
+    command.register(themeContribution({ available: () => false }))
+    expect(command.open('theme', proj('s1'))).toBe(false)
+    command.register(themeContribution({ name: 'act', ui: { kind: 'action', run: vi.fn() } }))
+    expect(command.open('act', proj('s1'))).toBe(false)
+    command.register(themeContribution({ name: 'pop' }))
+    expect(command.open('pop', proj('ghost'))).toBe(false)
+    expect(command.popupFor(scope.ctx).state.getSnapshot().open).toBe(false)
+  })
+
+  it('refuses open while a selection is actively submitting, preserving in-flight completion and focus', async () => {
+    const { command, mint, focuses } = await bench()
+    const pending = Promise.withResolvers<undefined>()
+    const onSelect = vi.fn(() => pending.promise)
+    command.register(themeContribution({ ui: themeUi({ onSelect }) }))
+    const scope = mint('s1')
+    expect(command.open('theme', proj('s1'))).toBe(true)
+    const popup = command.popupFor(scope.ctx)
+    await vi.waitFor(() => { expect(popup.state.getSnapshot().status).toBe('ready') })
+    const selection = popup.select(0)
+    expect(popup.state.getSnapshot().submitting).toBe(true)
+    expect(command.open('theme', proj('s1'))).toBe(false)
+    expect(popup.state.getSnapshot().submitting).toBe(true)
+    pending.resolve(undefined)
+    await selection
+    expect(popup.state.getSnapshot().open).toBe(false)
+    expect(focuses).toEqual([sid('s1')])
+  })
+
+  it('no-ops when open is called for an already-open command without resetting search', async () => {
+    const { command, mint } = await bench()
+    command.register(themeContribution())
+    const scope = mint('s1')
+    expect(command.open('theme', proj('s1'))).toBe(true)
+    const popup = command.popupFor(scope.ctx)
+    await vi.waitFor(() => { expect(popup.state.getSnapshot().status).toBe('ready') })
+    popup.setSearch('dar')
+    expect(popup.state.getSnapshot().search).toBe('dar')
+    expect(command.open('theme', proj('s1'))).toBe(true)
+    expect(popup.state.getSnapshot().search).toBe('dar')
+  })
+
+  it('refuses addressed subagents at the service boundary', async () => {
+    const b = await bench({ addressed: sid('child') })
+    b.command.register(themeContribution())
+    expect(b.command.open('theme', proj('child'))).toBe(false)
+  })
+})
+
 describe('dispatch (menu column)', () => {
   it('contribution → opens the session popup with the open-time projection, no execute', async () => {
     const { command, source, mint, warm, executeCalls } = await bench()
@@ -1009,6 +1079,99 @@ describe('register (contribution face)', () => {
     expect(() => command.register(themeContribution())).toThrow('duplicate contribution')
     dispose()
     command.register(themeContribution())()
+  })
+})
+
+describe('popup ownership teardown', () => {
+  async function owned(kind: 'contribution' | 'decoration' | 'service', ui: PopupSelectSpec) {
+    const b = await bench()
+    const name = kind === 'decoration' ? 'goal' : 'theme'
+    const owner = b.ctx.plugin({
+      inject: ['commandUi'],
+      apply(ctx: Context) {
+        if (kind === 'decoration') ctx.commandUi.decorate({ name, available: () => true, ui })
+        else ctx.commandUi.register(themeContribution({ ui }))
+      },
+    })
+    await owner.await()
+    const scope = b.mint('s1')
+    const consumes: ConsumeTokenRequest[] = []
+    scope.ctx.on('slash/input-consume-token', (request) => { consumes.push(request); return true })
+    await b.warm(proj('s1'))
+    expect(menuPick(b.source, name, proj('s1'))).toBe('handled')
+    return {
+      ...b, scope, consumes, popup: b.command.popupFor(scope.ctx),
+      unload: () => (kind === 'service' ? b.fiber : owner).dispose(),
+    }
+  }
+
+  describe.each(['contribution', 'decoration', 'service'] as const)('%s unload', (kind) => {
+    it.each(['resolve', 'reject'] as const)('aborts a pending options load and ignores its late %s', async (outcome) => {
+      const pending = Promise.withResolvers<readonly SelectOption[]>()
+      let signal: AbortSignal | undefined
+      const onSelect = vi.fn()
+      const b = await owned(kind, themeUi({
+        options: (_session, abort) => { signal = abort; return pending.promise }, onSelect,
+      }))
+      expect(b.popup.state.getSnapshot()).toMatchObject({ open: true, status: 'pending' })
+      await b.unload()
+      expect(b.sessions.scope(sid('s1'))).toBe(b.scope.ctx)
+      expect(signal?.aborted).toBe(true)
+      expect(b.popup.state.getSnapshot().open).toBe(false)
+      if (outcome === 'resolve') pending.resolve([{ id: 'late', label: 'Late' }])
+      else pending.reject(new Error('late load'))
+      await pending.promise.catch(() => undefined)
+      await b.popup.select(0)
+      expect(b.popup.state.getSnapshot()).toMatchObject({ open: false, options: [], error: null })
+      expect(onSelect).not.toHaveBeenCalled()
+      expect(b.consumes).toEqual([])
+      expect(b.focuses).toEqual([])
+    })
+
+    it.each(['resolve', 'reject'] as const)('revokes a pending selection before its late %s', async (outcome) => {
+      const pending = Promise.withResolvers<undefined>()
+      let signal: AbortSignal | undefined
+      const b = await owned(kind, themeUi({
+        options: (_session, abort) => { signal = abort; return Promise.resolve([{ id: 'dark', label: 'Dark' }]) },
+        onSelect: () => pending.promise,
+      }))
+      await vi.waitFor(() => { expect(b.popup.state.getSnapshot().status).toBe('ready') })
+      const selection = b.popup.select(0)
+      expect(b.popup.state.getSnapshot().submitting).toBe(true)
+      await b.unload()
+      expect(b.sessions.scope(sid('s1'))).toBe(b.scope.ctx)
+      expect(signal?.aborted).toBe(true)
+      if (outcome === 'resolve') pending.resolve(undefined)
+      else pending.reject(new Error('late selection'))
+      await selection
+      expect(b.popup.state.getSnapshot()).toMatchObject({ open: false, submitting: false, error: null })
+      expect(b.consumes).toEqual([])
+      expect(b.focuses).toEqual([])
+    })
+  })
+
+  it('keeps a replacement registration open when an old disposer runs again', async () => {
+    const b = await bench()
+    const remove = b.command.register(themeContribution())
+    b.command.open('theme', proj('s1'))
+    remove()
+    const replacement = themeUi()
+    b.command.register(themeContribution({ ui: replacement }))
+    b.command.open('theme', proj('s1'))
+    remove()
+    const popup = b.command.popupFor(b.mint('s1').ctx)
+    await vi.waitFor(() => { expect(popup.state.getSnapshot().status).toBe('ready') })
+    expect(popup.state.getSnapshot().open).toBe(true)
+    expect(b.focuses).toEqual([])
+  })
+
+  it('does not close a different spec with the same command name', async () => {
+    const b = await bench()
+    const remove = b.command.register(themeContribution())
+    const popup = b.command.popupFor(b.mint('s1').ctx)
+    popup.open('theme', themeUi(), proj('s1'), { via: 'shortcut' })
+    remove()
+    expect(popup.state.getSnapshot().open).toBe(true)
   })
 })
 

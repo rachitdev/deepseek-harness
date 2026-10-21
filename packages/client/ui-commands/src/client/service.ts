@@ -21,7 +21,7 @@ import type { CommandResult } from '@deepseek-ai/dsh-commands/types'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions, SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { WeakMapWithValues } from '@deepseek-ai/dsh-util-values'
+import { assertNever, WeakMapWithValues } from '@deepseek-ai/dsh-util-values'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import { rankByName } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
@@ -63,6 +63,16 @@ function submittedCommandName(line: string): string {
   const trimmed = line.trim()
   const separator = trimmed.search(/\s/u)
   return (separator === -1 ? trimmed : trimmed.slice(0, separator)).slice(1)
+}
+
+/** The Input-side CAS guard for one token segment; a shortcut open has no token to consume. */
+function consumeGuard(segment: TokenSegment) {
+  switch (segment.via) {
+    case 'menu': return { kind: 'span', span: segment.span } as const
+    case 'enter': return { kind: 'bare-token', token: segment.token } as const
+    case 'shortcut': return undefined
+    default: return assertNever(segment)
+  }
 }
 
 /** Live mutable state in one holder (service methods run behind the caller-ctx tracker). */
@@ -128,6 +138,10 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     // prewarming so a newly opened menu waits for the replacement catalog.
     ctx.remote.$on('agent-preset/selected', (sessionId) => { this.directory.resetSession(sessionId) })
     ctx.on('connection/reset', () => { this.directory.resetConnected() })
+    ctx.effect(() => () => {
+      for (const popup of this.live.popups.values) popup.dispose()
+      this.live.popups.clear()
+    }, 'command: resident popups')
   }
 
   /**
@@ -143,7 +157,13 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
         throw new Error(`ui-commands: duplicate contribution for /${contribution.name}`)
       }
       contributions.set(contribution.name, contribution)
-      return () => { contributions.delete(contribution.name) }
+      return () => {
+        if (contributions.get(contribution.name) !== contribution) return
+        contributions.delete(contribution.name)
+        if (contribution.ui.kind === 'popupSelect') {
+          for (const popup of this.live.popups.values) popup.dismissOwned(contribution.name, contribution.ui)
+        }
+      }
     }, 'command.register()')
     return () => { void dispose() }
   }
@@ -161,7 +181,13 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
         throw new Error(`ui-commands: duplicate decoration for /${decoration.name}`)
       }
       decorations.set(decoration.name, decoration)
-      return () => { decorations.delete(decoration.name) }
+      return () => {
+        if (decorations.get(decoration.name) !== decoration) return
+        decorations.delete(decoration.name)
+        if (decoration.ui.kind === 'popupSelect') {
+          for (const popup of this.live.popups.values) popup.dismissOwned(decoration.name, decoration.ui)
+        }
+      }
     }, 'command.decorate()')
     return () => { void dispose() }
   }
@@ -178,6 +204,27 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
       // dismissal path.
       if (popup.state.getSnapshot().command === name) popup.dismiss({ focusComposer: true })
     }
+  }
+
+  /**
+   * Open a registered popupSelect contribution without a composer token
+   * (keyboard shortcuts); a successful pick consumes nothing from the draft.
+   * @param name - contribution name without the leading slash.
+   * @param session - session the popup serves.
+   * @returns whether the popup opened; false for an unknown, unavailable, or action contribution or a session without a live scope.
+   */
+  open(name: string, session: ClientSessionContext): boolean {
+    const contribution = this.live.contributions.get(name)
+    if (contribution === undefined || contribution.ui.kind !== 'popupSelect' || !contribution.available(session)) return false
+    const actx = this.scopeFor(session.sessionId)
+    if (actx === undefined) return false
+    if (this.sessions().subagentAddress(session.sessionId) !== undefined) return false
+    const controller = this.popupFor(actx)
+    const snapshot = controller.state.getSnapshot()
+    if (snapshot.submitting) return false
+    if (snapshot.open && snapshot.command === name) return true
+    controller.open(name, contribution.ui, session, { via: 'shortcut' })
+    return true
   }
 
   /**
@@ -200,11 +247,10 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     const existing = popups.get(binding)
     if (existing !== undefined) return existing
     const controller = new PopupSelectController<ClientSessionContext>({
-      consume: segment => binding.ctx.bail(binding.ctx, 'slash/input-consume-token', {
-        guard: segment.via === 'menu'
-          ? { kind: 'span', span: segment.span }
-          : { kind: 'bare-token', token: segment.token },
-      }) === true,
+      consume: (segment) => {
+        const guard = consumeGuard(segment)
+        return guard !== undefined && binding.ctx.bail(binding.ctx, 'slash/input-consume-token', { guard }) === true
+      },
       // The shell took the keyboard; the composer restores it, caret included.
       focusComposer: () => { binding.ctx.get('conversation')?.input.for(binding.ctx).focus() },
     })
@@ -478,12 +524,9 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
   /** Dispatch a consume-token event to one session (menu-pick / bare-enter execute paths). */
   private consumeVia(id: SessionId, segment: TokenSegment): void {
     const actx = this.scopeFor(id)
-    if (actx === undefined) return
-    actx.bail(actx, 'slash/input-consume-token', {
-      guard: segment.via === 'menu'
-        ? { kind: 'span', span: segment.span }
-        : { kind: 'bare-token', token: segment.token },
-    })
+    const guard = consumeGuard(segment)
+    if (actx === undefined || guard === undefined) return
+    actx.bail(actx, 'slash/input-consume-token', { guard })
   }
 
   /** Route an admission failure to the session's composer notice channel (scope gone = attempt died with it). */

@@ -18,6 +18,9 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../shortcuts/tsconfig.client.json"
+    },
+    {
       "path": "../locale/tsconfig.client.json"
     },
     {

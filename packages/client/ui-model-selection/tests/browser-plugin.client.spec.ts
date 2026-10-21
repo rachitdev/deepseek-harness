@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * ui-model-selection browser half on a real cordis Context with fake command/slots/
  * connection faces and real session scopes: the plugin mounts ModelDirectoryResolver
@@ -19,7 +20,8 @@ import type { ModelSelection, ModelSelectionProjection } from '@deepseek-ai/dsh-
 import type { CommandContribution, PopupSelectSpec, SelectOption } from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { ModelSelectInjected } from '../src/client/slots.ts'
 import { apply, inject } from '../src/client/index.ts'
-import { zh } from '../src/client/locales.ts'
+import { en, zh } from '../src/client/locales.ts'
+import type { ShortcutCommand, ShortcutContext } from '@deepseek-ai/dsh-client-shortcuts/client'
 
 const sid = (k: string): SessionId => k as SessionId
 
@@ -113,12 +115,25 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
     },
   })
   let contribution: CommandContribution | undefined
+  const opened: Array<{ name: string; sessionId: SessionId }> = []
   ctx.provide('commandUi', {
     register(c: CommandContribution) {
       contribution = c
       return () => { contribution = undefined }
     },
+    open(name: string, session: { sessionId: SessionId }) {
+      opened.push({ name, sessionId: session.sessionId })
+      return contribution !== undefined
+    },
   })
+  const shortcuts = new Map<string, ShortcutCommand>()
+  ctx.provide('shortcuts', {
+    register(command: ShortcutCommand) {
+      shortcuts.set(command.id, command)
+      return () => { shortcuts.delete(command.id) }
+    },
+  })
+  const listed: Record<string, { id: SessionId; retainedBy: { mainView?: number } }> = {}
   const seats = new Map<string, {
     inject: ((sessionId: SessionId) => ModelSelectInjected) | undefined
     locale: string | undefined
@@ -147,6 +162,7 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
   }>()
   const addressed = new Set<SessionId>()
   ctx.provide('sessions', {
+    list: { getSnapshot: () => ({ byId: listed }) },
     scope: (id: SessionId) => scopes.get(id),
     binding: (id: SessionId) => bindings.get(id),
     subagentAddress: (id: SessionId) => addressed.has(id)
@@ -179,7 +195,9 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
     return { ...handle, projection }
   }
   return {
-    ctx, fiber, mint, calls, remote, track,
+    ctx, fiber, mint, calls, remote, track, opened,
+    shortcut: () => shortcuts.get('model.switch'),
+    showInMainView: (key: string) => { listed[key] = { id: sid(key), retainedBy: { mainView: 1 } } },
     contribution: () => contribution!,
     popup: (): PopupSelectSpec => {
       const ui = contribution!.ui
@@ -556,4 +574,76 @@ it.each([false, true])('reports accepted switches with blank=%s and no refused s
     await face.select({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
     expect(b.track).not.toHaveBeenCalled()
   } finally { await scope.fiber.dispose(); await b.ctx.fiber.dispose() }
+})
+
+describe('model switch shortcut', () => {
+  /** A real DOM element inside one conversation's subtree (matching ConversationContent.tsx). */
+  const inConversation = (key: string): HTMLElement => {
+    const root = document.createElement('div')
+    root.setAttribute('data-conversation-session', key)
+    const child = document.createElement('textarea')
+    root.appendChild(child)
+    return child
+  }
+  const outside = document.createElement('button')
+  const press = (command: ShortcutCommand, target: Element | null): ReturnType<ShortcutCommand['resolve']> =>
+    command.resolve({ region: 'editable', modal: null, target } satisfies ShortcutContext)
+
+  it('registers one rebindable command with a Cmd/Ctrl+Shift+M default in every profile, removed on disposal', async () => {
+    const b = await bench('en')
+    const command = b.shortcut()!
+    expect(command.label()).toBe(en['shortcut.label'])
+    expect(Object.values(command.defaults)).toEqual(Array(6).fill({ code: 'KeyM', modifiers: ['primary', 'shift'] }))
+    expect(command.regions).toEqual(['page', 'editable'])
+    await b.fiber.dispose()
+    expect(b.shortcut()).toBeUndefined()
+  })
+
+  it('opens /model for the focused conversation, else the main-view conversation', async () => {
+    const b = await bench()
+    b.mint('s1')
+    b.mint('s2')
+    b.showInMainView('s2')
+    const focused = press(b.shortcut()!, inConversation('s1'))
+    if (focused.status !== 'handled') throw new Error('expected handled')
+    focused.run()
+    const fallback = press(b.shortcut()!, outside)
+    if (fallback.status !== 'handled') throw new Error('expected handled')
+    fallback.run()
+    expect(b.opened).toEqual([{ name: 'model', sessionId: sid('s1') }, { name: 'model', sessionId: sid('s2') }])
+  })
+
+  it('focus inside an addressed subagent pane yields blocked and never falls back to the main-view conversation', async () => {
+    const b = await bench('en')
+    b.mint('main')
+    b.showInMainView('main')
+    b.mint('child')
+    b.address(sid('child'))
+    const resolution = press(b.shortcut()!, inConversation('child'))
+    expect(resolution).toEqual({ status: 'blocked', reason: en['shortcut.unavailable'] })
+    expect(b.opened).toEqual([])
+  })
+
+  it('is blocked with localized copy when no conversation is targetable or the target is an addressed subagent', async () => {
+    const b = await bench('en')
+    expect(press(b.shortcut()!, null)).toEqual({ status: 'blocked', reason: en['shortcut.unavailable'] })
+    expect(press(b.shortcut()!, inConversation('closed'))).toEqual({ status: 'blocked', reason: en['shortcut.unavailable'] })
+    b.mint('child')
+    b.address(sid('child'))
+    expect(press(b.shortcut()!, inConversation('child'))).toEqual({ status: 'blocked', reason: en['shortcut.unavailable'] })
+    expect(b.opened).toEqual([])
+  })
+
+  it('warns instead of throwing when the popup cannot open', async () => {
+    const b = await bench()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    b.mint('s9')
+    b.showInMainView('s9')
+    const resolution = press(b.shortcut()!, null)
+    if (resolution.status !== 'handled') throw new Error('expected handled')
+    await b.fiber.dispose()
+    resolution.run()
+    expect(warn).toHaveBeenCalledWith('model shortcut: /model popup unavailable for session s9')
+    warn.mockRestore()
+  })
 })

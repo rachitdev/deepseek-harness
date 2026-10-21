@@ -21,11 +21,12 @@ import { groupOptions } from './option-groups.ts'
  * injected {@link PopupSelectDeps.consume} callback after a successful
  * selection. The Input side guards it: a menu-path span consumes iff draftRev
  * is unchanged, an enter-path line iff the trimmed draft still equals the
- * bare token.
+ * bare token. A keyboard-shortcut open typed no token, so it consumes nothing.
  */
 export type TokenSegment =
   | { readonly via: 'menu'; readonly span: TokenSpan }
   | { readonly via: 'enter'; readonly token: string }
+  | { readonly via: 'shortcut' }
 
 /**
  * Structural business spec the shell settles against — the popupSelect half
@@ -320,6 +321,15 @@ export class PopupSelectController<TCtx = unknown> {
     this.binding = null
     this.state.set(CLOSED)
     if (opts?.focusComposer === true) this.deps.focusComposer()
+  }
+
+  /**
+   * Close only the binding owned by an unregistered command spec, without moving focus.
+   * @param command - command name whose registration is ending.
+   * @param spec - exact registered spec; a replacement binding must remain open.
+   */
+  dismissOwned(command: string, spec: PopupSpec<TCtx>): void {
+    if (this.binding?.command === command && this.binding.spec === spec) this.dismiss()
   }
 
   /** Scope-teardown disposer: abort in-flight work and clear state (no focus side effect). */

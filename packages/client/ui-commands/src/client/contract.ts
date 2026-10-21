@@ -143,6 +143,13 @@ export interface CommandUiContract {
    * Duplicate names throw at registration.
    */
   decorate(decoration: CommandDecoration): () => void
+  /**
+   * Open one registered popupSelect contribution for a session without a composer token.
+   * @param name - contribution name without the leading slash.
+   * @param session - session the popup serves.
+   * @returns whether the popup opened.
+   */
+  open(name: string, session: ClientSessionContext): boolean
   /** Close this command's open popups and confirmations without consuming composer drafts. */
   dismiss(name: string): void
   /** Resolve the per-session popup controller for one session scope (wiring/overlay layer). */

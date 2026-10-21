@@ -15,6 +15,8 @@ import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/typ
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { CommandUiContract, SelectOption } from '@deepseek-ai/dsh-client-ui-commands/client'
+import type { ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.model seat).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
@@ -163,6 +165,40 @@ export function apply(ctx: ClientContext): void {
         },
       },
     }), 'ui-model-selection: /model contribution')
+  })
+
+  // Entry 1b: a keyboard shortcut opens the same /model popup for the conversation
+  // that holds keyboard focus, or the main-view conversation when focus is elsewhere.
+  ctx.inject(['commandUi', 'shortcuts'], (scope: ClientContext) => {
+    const command = scope.get('commandUi') as CommandUiContract
+    const sessions = scope.sessions
+    const targetSession = (element: Element | null): SessionId | undefined => {
+      const focused = element?.closest<HTMLElement>('[data-conversation-session]')?.dataset.conversationSession
+      if (focused !== undefined) return focused as SessionId
+      return Object.values(sessions.list.getSnapshot().byId)
+        .find(row => (row.retainedBy.mainView ?? 0) > 0)?.id
+    }
+    scope.effect(() => scope.shortcuts.register({
+      id: 'model.switch' as ShortcutCommandId, label: () => t('shortcut.label'), aliases: ['model', 'switch model', 'change model'],
+      defaults: {
+        'desktop:macos': { code: 'KeyM', modifiers: ['primary', 'shift'] },
+        'desktop:windows': { code: 'KeyM', modifiers: ['primary', 'shift'] },
+        'desktop:linux': { code: 'KeyM', modifiers: ['primary', 'shift'] },
+        'web:macos': { code: 'KeyM', modifiers: ['primary', 'shift'] },
+        'web:windows': { code: 'KeyM', modifiers: ['primary', 'shift'] },
+        'web:linux': { code: 'KeyM', modifiers: ['primary', 'shift'] },
+      },
+      regions: ['page', 'editable'], modals: [],
+      resolve: ({ target }) => {
+        const sessionId = targetSession(target)
+        if (sessionId === undefined || sessions.scope(sessionId) === undefined || sessions.subagentAddress(sessionId) !== undefined) {
+          return { status: 'blocked', reason: t('shortcut.unavailable') }
+        }
+        return { status: 'handled', run: () => {
+          if (!command.open('model', { sessionId })) console.warn(`model shortcut: /model popup unavailable for session ${sessionId}`)
+        } }
+      },
+    }), 'ui-model-selection: model shortcut')
   })
 
   // Entry 2: the composer's named model seat over the SAME directory.
