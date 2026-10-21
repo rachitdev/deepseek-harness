@@ -879,7 +879,10 @@ export interface ModelFailoverConfig {
 export interface RecallFilterConfig {
   /** Whether recall messages are screened. */
   readonly enabled?: boolean
-  /** `source.plugin` of the recall messages to screen. */
+  /**
+   * `source.plugin` of plugin-form recall messages to screen.
+   * The default also screens CortexDB recall (`source.kind === 'cortexdb-memory'`).
+   */
   readonly sourcePlugin?: string
   /** `source.form` of the recall messages to screen. */
   readonly sourceForm?: string
@@ -1746,7 +1749,7 @@ export interface HmrConfig extends ChokidarOptions {
 ## `@deepseek-ai/dsh-hooks-claude-code`
 
 - `inject`: `shell` · `sessionProjections` · `workingDirectory`
-- `source`: [`packages/experimental/hooks-claude-code/src/index.ts:51`](../packages/experimental/hooks-claude-code/src/index.ts)
+- `source`: [`packages/experimental/hooks-claude-code/src/index.ts:53`](../packages/experimental/hooks-claude-code/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: where the CC hook config lives + substitution roots. */
@@ -4025,7 +4028,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-fs`
 
 - `inject`: `tools` · `fs` · `systemPrompt` · `workingDirectory`
-- `source`: [`packages/fs/tool-fs/src/index.ts:26`](../packages/fs/tool-fs/src/index.ts)
+- `source`: [`packages/fs/tool-fs/src/index.ts:28`](../packages/fs/tool-fs/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config (all optional — `Config` supplies the defaults). */
@@ -4046,6 +4049,20 @@ export interface Config {
   readMaxBytes?: number
   /** Files at or above this size stream instead of loading whole into memory. */
   readStreamMinSize?: number
+  /**
+   * Absolute path to an OCR executable that returns recognized text for an
+   * image. Set, a route that declares no image input receives that text
+   * instead of the strict refusal; unset, `read_image` refuses exactly as before.
+   */
+  readImageOcr?: string
+  /** Arguments for `readImageOcr`, placed before the staged image path it receives. */
+  readImageOcrArgs?: string[]
+  /** Recognition language recorded with a result; pass the engine's own language flag through `readImageOcrArgs`. */
+  readImageOcrLang?: string
+  /** Deadline for one OCR invocation, in milliseconds. */
+  readImageOcrTimeoutMs?: number
+  /** Cap on recognized text returned to the model, in bytes. */
+  readImageOcrMaxBytes?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-fs -->
@@ -4599,7 +4616,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-user-approval`
 
-- `source`: [`packages/interaction/user-approval/src/index.ts:135`](../packages/interaction/user-approval/src/index.ts)
+- `source`: [`packages/interaction/user-approval/src/index.ts:174`](../packages/interaction/user-approval/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config. All optional — `static Config` supplies the defaults. */

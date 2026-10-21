@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `dsh-tool-fs` to let a model read UTF-8 files with line numbers, read supported images, create or atomically replace files, and apply targeted literal edits. Results are capped, and failures provide stable error codes and recovery instructions. Add `dsh-fs-observation-policy` when writes and edits must follow a successful read; without it, mutations remain atomic but are unconditional. Image reads require durable attachment storage and an image-capable routed model. Choose the sibling discovery package for glob or grep searches.
+Use `dsh-tool-fs` to let a model read UTF-8 files with line numbers, read supported images, create or atomically replace files, and apply targeted literal edits. Results are capped, and failures provide stable error codes and recovery instructions. Add `dsh-fs-observation-policy` when writes and edits must follow a successful read; without it, mutations remain atomic but are unconditional. Image reads require durable attachment storage; a route whose exact model declares image input receives the image itself, and a deployment that configures `readImageOcr` returns recognized text instead. Choose the sibling discovery package for glob or grep searches.
 
 ## Table of Contents
 
@@ -39,14 +39,14 @@ A backend, the policy plugin, then the tools; the attachment store is optional a
 - name: '@deepseek-ai/dsh-tool-fs'
 ```
 
-The policy plugin is optional: without it the tools run against the bare provider (unconditional write, overwrite, and edit with no observed-state). A deployment that loads these tools is expected to also load it, so the behavior is read-before-write/edit. `read_image` registers only while a durable `ctx.attachments` service is mounted; execution additionally refuses on a route whose exact model does not declare image input, so a text route's durable history stays free of image blocks.
+The policy plugin is optional: without it the tools run against the bare provider (unconditional write, overwrite, and edit with no observed-state). A deployment that loads these tools is expected to also load it, so the behavior is read-before-write/edit. `read_image` registers only while a durable `ctx.attachments` service is mounted; execution additionally refuses on a route whose exact model does not declare image input, so a text route's durable history stays free of image blocks. A deployment that configures `readImageOcr` replaces that refusal for such a route: the tool returns text recognized by the configured command, and no image block is created.
 
 ### The tools
 
 | Tool | Arguments | Behavior |
 |---|---|---|
 | `read` | `file_path`, `offset?`, `limit?` | Line-numbered UTF-8 content with a pagination footer; `offset` is 1-based and `limit` defaults to and caps at the configured `readLimit` |
-| `read_image` | `file_path` | Reads and persists a PNG/JPEG/WebP/GIF source; an extension-less path (normalized attachment object paths included) is identified from its file signature; normalization can downscale it before the next model request, so the model need not create a thumbnail first |
+| `read_image` | `file_path` | Reads and persists a PNG/JPEG/WebP/GIF source; an extension-less path (normalized attachment object paths included) is identified from its file signature; normalization can downscale it before the next model request, so the model need not create a thumbnail first. On a route without image input, a configured `readImageOcr` command returns recognized text instead |
 | `write` | `file_path`, `content` | Creates or fully replaces a file; with the policy plugin, overwriting requires a prior `read` at the unchanged version, creating does not |
 | `edit` | `file_path`, `old_string`, `new_string`, `replace_all?` | Literal replacement requiring a unique match unless `replace_all` is true; with the policy plugin, requires a prior `read` and an unchanged file |
 
@@ -54,7 +54,7 @@ Field names are snake_case to match Claude Code and existing harness tool schema
 
 ### Configuration
 
-All keys are optional. The `read`, `readImage`, `write`, and `edit` switches default to `true`; set a switch to `false` to omit that tool and its guidance. All four may be disabled. Enabling `readImage` still requires an attachment store and an image-capable model. Read caps remain validated when `read` is disabled.
+All keys are optional. The `read`, `readImage`, `write`, and `edit` switches default to `true`; set a switch to `false` to omit that tool and its guidance. All four may be disabled. Enabling `readImage` still requires an attachment store. The image route needs either an image-capable model or a configured `readImageOcr` command. Read caps remain validated when `read` is disabled.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -66,8 +66,15 @@ All keys are optional. The `read`, `readImage`, `write`, and `edit` switches def
 | `readMaxLineLength` | `2000` | Characters kept per line before truncation |
 | `readMaxBytes` | `51200` | Byte cap on one `read` call's selected lines; overflow ends the window with a capped footer |
 | `readStreamMinSize` | `10485760` | Files at or above this size (or of unknown size) stream instead of loading whole into memory |
+| `readImageOcr` | — | Absolute path to an OCR executable that returns recognized text for an image; set, a route without image input receives that text instead of the refusal; unset, the refusal stands |
+| `readImageOcrArgs` | `[]` | Arguments for `readImageOcr`, placed before the staged image path it receives |
+| `readImageOcrLang` | — | Language recorded in the result's `ocr.lang`; pass the engine's own language flag through `readImageOcrArgs` |
+| `readImageOcrTimeoutMs` | `30000` | Deadline for one OCR invocation, in milliseconds |
+| `readImageOcrMaxBytes` | `16384` | Cap on recognized text returned to the model, in bytes |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-fs) is the exhaustive source for every accepted field and its JSDoc.
+
+An OCR deployment supplies the engine and its flags, and the engine's stdout is the recognized text as-is. The command is whatever that deployment installs: `readImageOcr` takes its absolute path, and `readImageOcrArgs` carries the flags that make it write recognized text to stdout. One local check against a macOS Vision OCR helper installed outside this repository recognized a rendered "HELLO DSH OCR 12345" PNG with the helper's own `<<<PAGE n>>>` markers preserved; that run is a local observation, not reproducible evidence, because the helper is not a shipped artifact and the suite exercises the fallback with a fake command instead.
 
 With `fs-observation-policy` mounted and `read` disabled, `write` can still create files, and successful writes or edits record the versions needed for later mutations in that session. Existing unobserved files remain protected; disabling `read` does not relax the policy. Another filesystem reader must emit `fs/observed` for an existing file to become observed.
 
@@ -79,7 +86,7 @@ With the policy plugin mounted, `write` and `edit` obtain their guard from the `
 
 ### Failures and recovery
 
-Failures are normalized as `Error: <message>` with a structured code preserved for callers. Stable messages include `file_path must be a non-empty string`, `limit must be less than or equal to <max>`, `cannot read "<path>": not found`, `cannot read "<path>": not a regular file`, and the image-route refusal `cannot read "<path>" as an image: model "<model>" does not declare image input; switch to an image-capable model to read images`. `FS_NOT_OBSERVED` is normalized to `cannot modify "<path>": file has not been read — read the file, then retry`, independent of whether the policy or provider rejected the operation; `FS_STALE_VERSION` retains the provider's reason and appends `— re-read the file, then retry`. After the reread confirms absence, `edit` reports `FS_NOT_FOUND` instead of repeating a stale remedy, while `write` uses guarded creation.
+Failures are normalized as `Error: <message>` with a structured code preserved for callers. Stable messages include `file_path must be a non-empty string`, `limit must be less than or equal to <max>`, `cannot read "<path>": not found`, `cannot read "<path>": not a regular file`, and the image-route refusal `cannot read "<path>" as an image: model "<model>" does not declare image input; switch to an image-capable model to read images`. OCR failures name the display path and the configured command line: `cannot read "<path>" as an image text: the OCR command "<command line>" is not an executable file`, `… could not run (<reason>)`, `… exited with code <code>: <stderr tail>`, `… did not finish within <ms>ms`, `… was cancelled`, `… produced no text; the image may contain none`, `… produced more than the <window>-byte capture window, so the start of its text was already lost; raise readImageOcrMaxBytes to capture the whole result`, `… needs a private temporary directory, and one could not be created`, `… the image could not be staged for the OCR command "<command line>"`, and `… cannot run because no subprocess service is mounted`. Engine stderr and every failure message above replace the staged directory with `<staged>`, so no temporary path appears there; recognized text is returned exactly as the engine wrote it. `FS_NOT_OBSERVED` is normalized to `cannot modify "<path>": file has not been read — read the file, then retry`, independent of whether the policy or provider rejected the operation; `FS_STALE_VERSION` retains the provider's reason and appends `— re-read the file, then retry`. After the reread confirms absence, `edit` reports `FS_NOT_FOUND` instead of repeating a stale remedy, while `write` uses guarded creation.
 
 -----
 
@@ -101,7 +108,7 @@ The tools are the executor; policy is an event gate. The tools inject no policy 
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config`, tool composition, `read_image` attachments gate |
 | [`src/read.ts`](src/read.ts) | `read` executor: one stat, streaming decision, window build, observation |
-| [`src/read-image.ts`](src/read-image.ts) | `read_image` executor: route and media-type gates, bounded bytes, attachment save |
+| [`src/read-image.ts`](src/read-image.ts) | `read_image` executor: route and media-type gates, bounded bytes, attachment save, OCR fallback |
 | [`src/write.ts`](src/write.ts) | `write` executor: intent waterfall, atomic write, observation |
 | [`src/edit.ts`](src/edit.ts) | `edit` executor: intent waterfall, literal edit, observation |
 | [`src/read-render.ts`](src/read-render.ts) | Cordis-free windowing and envelope formatting |
@@ -174,7 +181,7 @@ Prefix-stable while the visible tool set, plugin scope, and guidance text are un
 
 #### What the model sees
 
-The model sees the generated [`read`, `read_image`, `write`, and `edit` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-fs), with snake_case arguments. The image tool appears only while a durable attachment store is mounted; its schema is route-independent, and the strict gate refuses at execution. Scoped tool restrictions can remove any definition for one agent.
+The model sees the generated [`read`, `read_image`, `write`, and `edit` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-fs), with snake_case arguments. The image tool appears only while a durable attachment store is mounted; its schema is route-independent, it declares both result members, and the gate decides at execution which one a call returns. Scoped tool restrictions can remove any definition for one agent.
 
 #### Token effect
 
@@ -211,6 +218,20 @@ The image is billed on every later request until compaction. Each call is indepe
 #### KV Cache effect
 
 Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
+### OCR text result
+
+#### What the model sees
+
+When the deployment configures `readImageOcr` and the exact calling route declares no image input, a successful call returns `<path><resolvedPath></path>`, `<type>image text</type>`, and a `<content>` envelope holding the recognized text; no image block accompanies it, and the image is not persisted to the attachment store. A result longer than `readImageOcrMaxBytes` keeps the beginning and ends with a blank line and `[Recognized text was truncated; only the beginning is shown.]`; an engine that emits more than the capture window (`max(4 × readImageOcrMaxBytes, 8192)` bytes, since a bounded collector retains the tail) fails instead of returning a fragment, and the message names that knob. The image bytes reach the engine through an owner-only (`0600`) copy under the OS temp directory, removed before the call returns. The structured result also records `engine` (the configured command's basename), `lang` when configured, `bytesRead`, and `truncated` when the text was cut.
+
+#### Token effect
+
+Recognized text costs a fraction of the image block it replaces, and the envelope is capped by `readImageOcrMaxBytes`. Each call contributes only one image's text, resent until compaction.
+
+#### KV Cache effect
+
+Append-only; the text follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ### Write and edit results
 
@@ -251,6 +272,10 @@ These limits define when the tool suite is a poor fit or needs special operation
 - **`read` handles UTF-8 text files only** — images use the separate `read_image` tool; PDF, audio, and video remain deferred. A directory target is `FS_NOT_REGULAR_FILE`.
 - **Extension-declared media type** — an extension selects the declared type and the attachment store's magic-byte validation stays authoritative; a correctly formatted image under a wrong extension is refused with the rename remedy rather than sniffed. Only a path with no extension is identified from its file signature.
 - **Object paths re-enter source admission** — `read_image` on a normalized attachment object re-admits its bytes as a new source, so a deployment whose `maxImageBytes`/`maxMessageImageBytes` sit below the normalized-image byte budget can refuse an object path that `ctx.attachments.readImage` still serves; shipped defaults keep the normalized budget (4 MiB) far under the source caps (20 MiB).
+- **The OCR route needs an attachment store it never uses** — `read_image` registers under `ctx.inject(['attachments'])` and `execute` refuses without one, so a text-only deployment with no durable attachment store cannot use OCR even though the fallback persists nothing.
+- **The OCR route does not decode-validate** — it skips `saveImage`, so the dimension and pixel caps do not apply: a signature-checked file of any decoded size reaches the engine, bounded only by the deployment's byte cap and `readImageOcrTimeoutMs`. A decompression-bomb image is stopped by the deadline, not by the pixel limit.
+- **The OCR fallback returns text only** — a route without image input receives recognized text and no coordinates, so a task that must locate features in the image still needs an image-capable model. The fallback also needs a writable OS temp directory for the staged copy and a mounted `ctx.subprocess`.
+- **No recorded-session snapshot covers the OCR route** — unit tests plus one local check against a locally installed OCR helper exercise the fallback, but no `snapshots/` case replays it because recording requires `DEEPSEEK_API_KEY`; the recognized-text envelope therefore has no replay fixture.
 - **Inline image preview rides the UI composition** — the tool-result card renders the image through the browser's `tool.call.images` slot, which the attachment presentation plugin fills; a UI without that plugin shows the result's envelope text instead.
 - **No attachment-region tool** — an agent may crop an image through another available tool when it has a filesystem path; a pasted or dragged image without a path cannot be re-read at higher resolution.
 - **No timeout surface** — `read`/`write`/`edit` take no timeout argument and declare no timeout budget; cancellation rides `exec.signal` only ([provider rationale](../README.md)).

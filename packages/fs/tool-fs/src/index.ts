@@ -7,12 +7,14 @@
 
 import type {} from '@deepseek-ai/dsh-working-directory'
 import type { Context } from '@deepseek-ai/cordis'
+import { isAbsolute } from 'node:path'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { applyReadTool, READ_LIMIT, STREAM_MIN_SIZE } from './read.ts'
 import { applyWriteTool } from './write.ts'
 import { applyEditTool } from './edit.ts'
-import { applyReadImageTool } from './read-image.ts'
+import { applyReadImageTool, OCR_TEXT_MAX_BYTES, OCR_TIMEOUT_MS } from './read-image.ts'
+import type { ReadImageOcrOptions } from './read-image.ts'
 import { READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from './read-render.ts'
 import { FsSandboxController } from './sandbox.ts'
 
@@ -40,6 +42,20 @@ export interface Config {
   readMaxBytes?: number
   /** Files at or above this size stream instead of loading whole into memory. */
   readStreamMinSize?: number
+  /**
+   * Absolute path to an OCR executable that returns recognized text for an
+   * image. Set, a route that declares no image input receives that text
+   * instead of the strict refusal; unset, `read_image` refuses exactly as before.
+   */
+  readImageOcr?: string
+  /** Arguments for `readImageOcr`, placed before the staged image path it receives. */
+  readImageOcrArgs?: string[]
+  /** Recognition language recorded with a result; pass the engine's own language flag through `readImageOcrArgs`. */
+  readImageOcrLang?: string
+  /** Deadline for one OCR invocation, in milliseconds. */
+  readImageOcrTimeoutMs?: number
+  /** Cap on recognized text returned to the model, in bytes. */
+  readImageOcrMaxBytes?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -51,15 +67,38 @@ export const Config: z<Config> = z.object({
   readMaxLineLength: z.number().default(READ_MAX_LINE_LENGTH),
   readMaxBytes: z.number().default(READ_MAX_BYTES),
   readStreamMinSize: z.number().default(STREAM_MIN_SIZE),
+  readImageOcr: z.string(),
+  readImageOcrArgs: z.array(z.string()).default([]),
+  readImageOcrLang: z.string(),
+  readImageOcrTimeoutMs: z.number().default(OCR_TIMEOUT_MS),
+  readImageOcrMaxBytes: z.number().default(OCR_TEXT_MAX_BYTES),
 })
 
-/** Configuration after schemastery applied the defaults. */
-type ResolvedConfig = Required<Config>
+/**
+ * Configuration after schemastery applied the defaults. The OCR command and its
+ * language stay optional: an absent command is the deployment's opt-out, not a
+ * defaulted value.
+ */
+type ResolvedConfig = Required<Omit<Config, 'readImageOcr' | 'readImageOcrLang'>>
+  & Pick<Config, 'readImageOcr' | 'readImageOcrLang'>
 
 /** Every read cap counts lines/chars/bytes — a positive integer, or windowing arithmetic misbehaves silently. */
 function assertPositiveInteger(name: string, value: number): void {
   if (!Number.isInteger(value) || value < 1) {
     throw new Error(`tool-fs: ${name} must be a positive integer`)
+  }
+}
+
+/** Compose `read_image`'s OCR settings, or undefined when the deployment configured no command. */
+function readImageOcrOptions(resolved: ResolvedConfig): ReadImageOcrOptions | undefined {
+  const command = resolved.readImageOcr
+  if (command === undefined) return undefined
+  return {
+    command,
+    args: resolved.readImageOcrArgs,
+    ...resolved.readImageOcrLang === undefined ? {} : { lang: resolved.readImageOcrLang },
+    timeoutMs: resolved.readImageOcrTimeoutMs,
+    maxTextBytes: resolved.readImageOcrMaxBytes,
   }
 }
 
@@ -71,6 +110,18 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveInteger('readMaxLineLength', resolved.readMaxLineLength)
   assertPositiveInteger('readMaxBytes', resolved.readMaxBytes)
   assertPositiveInteger('readStreamMinSize', resolved.readStreamMinSize)
+  // An OCR command is a deployment path, never a bare name: the child runs
+  // without a shell, so a relative value could only resolve against whatever
+  // directory the harness happens to have. Its caps matter only once a command
+  // exists, so they are validated together with it; misconfiguration fails at load.
+  const ocrCommand = resolved.readImageOcr
+  if (ocrCommand !== undefined) {
+    if (!isAbsolute(ocrCommand)) {
+      throw new Error(`tool-fs: readImageOcr must be an absolute path to an OCR executable, got "${ocrCommand}"`)
+    }
+    assertPositiveInteger('readImageOcrTimeoutMs', resolved.readImageOcrTimeoutMs)
+    assertPositiveInteger('readImageOcrMaxBytes', resolved.readImageOcrMaxBytes)
+  }
   if (resolved.read) {
     applyReadTool(ctx, {
       limit: resolved.readLimit,
@@ -84,7 +135,7 @@ export function apply(ctx: Context, config: Config): void {
   // registers; the execute body keeps a defensive re-check for direct callers.
   if (resolved.readImage) {
     ctx.inject(['attachments'], (imageCtx) => {
-      applyReadImageTool(imageCtx)
+      applyReadImageTool(imageCtx, readImageOcrOptions(resolved))
     })
   }
   // One escalation API shared by both mutating tools: advertisement gating,
