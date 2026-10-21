@@ -2,6 +2,7 @@ version: 1
 scenario: pwsh-tool-turn
 profile: headless
 composition: pwsh
+capability: escalation
 recording: live
 header:
   class: pwsh

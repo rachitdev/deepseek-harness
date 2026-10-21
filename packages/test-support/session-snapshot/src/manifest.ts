@@ -2,6 +2,7 @@
 
 import { isAbsolute } from 'node:path'
 import * as yaml from 'js-yaml'
+import { CAPABILITY_APPROVAL, type SnapshotCapability } from './tool-pins.ts'
 
 /** Public `dsh` profile used to control a recorded-session scenario. */
 export type SnapshotProfile = 'headless' | 'sdk' | 'sdk-minimal' | 'acp' | 'web'
@@ -38,8 +39,15 @@ export interface SnapshotReplayManifest {
 /** Host requirements for a scenario's process-level controller. */
 export type SnapshotPlatform = 'posix' | 'pwsh'
 
-/** Deployment permission preset selected before the scenario starts. */
-export type SnapshotPermission = 'read-only' | 'workspace-write' | 'danger-full-access'
+/** Deployment sandbox mode a scenario boots under, independent of its approval capability. */
+export type SnapshotSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
+
+/**
+ * Permission preset the composition mounts, which fixes the sandbox mode and the
+ * approval policy together. `auto` is the live per-call review preset: a
+ * full-access sandbox whose denials still route to the user as `ask`.
+ */
+export type SnapshotPermission = SnapshotSandboxMode | 'auto'
 
 /** Scenario-local workspace preparation and expected-state metadata. */
 export interface SnapshotWorkspaceManifest {
@@ -110,8 +118,26 @@ export interface SnapshotManifest {
   replay?: SnapshotReplayManifest
   /** Optional host requirement; portable scenarios omit it. */
   platform?: SnapshotPlatform
-  /** Explicit process fallback permission preset. */
+  /** Permission preset the composition mounts, such as the recorded `permission/preset` value. */
   permission?: SnapshotPermission
+  /**
+   * Sandbox mode the boot pins through `DSH_PERMISSION_MODE`, which is the
+   * recorded `sandbox/mode`. Sandbox mode and approval capability are separate
+   * axes: `permission: auto` mounts a full-access sandbox with `ask` approvals.
+   * Defaults to the declared {@link permission} preset's mode, else to the
+   * {@link capability}'s mode.
+   */
+  sandbox: SnapshotSandboxMode
+  /**
+   * The approval capability this scenario's composition must mount, independent
+   * of {@link sandbox}: `unconfined` runs `never` approvals and omits the
+   * escalation parameters; `escalation` runs `ask` approvals and makes the
+   * mutating tools advertise sandbox escalation; `interactive` also runs `ask`
+   * approvals but mounts no escalation-capable backend, so it omits them.
+   * Defaults to the policy the declared {@link permission} preset or
+   * {@link sandbox} mode implies, which cannot distinguish `interactive`.
+   */
+  capability: SnapshotCapability
   /** Test-only string environment additions needed by the declared composition. */
   environment?: Record<string, string>
   /** Workspace setup and external final-state ownership. */
@@ -146,7 +172,27 @@ export function writesCurrentSessionFixtures(
 const PROFILES = new Set<SnapshotProfile>(['headless', 'sdk', 'sdk-minimal', 'acp', 'web'])
 const RECORDINGS = new Set<SnapshotRecording>(['live', 'authored'])
 const PLATFORMS = new Set<SnapshotPlatform>(['posix', 'pwsh'])
-const PERMISSIONS = new Set<SnapshotPermission>(['read-only', 'workspace-write', 'danger-full-access'])
+const PERMISSIONS = new Set<SnapshotPermission>(['read-only', 'workspace-write', 'danger-full-access', 'auto'])
+const SANDBOX_MODES = new Set<SnapshotSandboxMode>(['read-only', 'workspace-write', 'danger-full-access'])
+
+/**
+ * The sandbox mode and approval policy each venue of the permission service
+ * writes through: the three shipped presets of the base bundle, plus the live
+ * `auto` preset whose full-access sandbox still routes denials to the user.
+ */
+const PERMISSION_PRESETS: Readonly<Record<SnapshotPermission, { sandbox: SnapshotSandboxMode; approval: 'ask' | 'never' }>> = {
+  'read-only': { sandbox: 'read-only', approval: 'ask' },
+  'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
+  'danger-full-access': { sandbox: 'danger-full-access', approval: 'never' },
+  auto: { sandbox: 'danger-full-access', approval: 'ask' },
+}
+
+/** The sandbox mode a capability pins when the manifest names no preset or mode. */
+const CAPABILITY_SANDBOX_MODE: Readonly<Record<SnapshotCapability, SnapshotSandboxMode>> = {
+  unconfined: 'danger-full-access',
+  escalation: 'workspace-write',
+  interactive: 'workspace-write',
+}
 const SESSION_FORMAT_COVERAGE = new Set<SnapshotSessionFormatCoverage>([
   'multi-hop',
   'packed-row',
@@ -218,6 +264,8 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
       'replay',
       'platform',
       'permission',
+      'sandbox',
+      'capability',
       'environment',
       'workspace',
       'input',
@@ -301,10 +349,56 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
     let permission: SnapshotPermission | undefined
     if (root.permission !== undefined) {
       if (typeof root.permission !== 'string' || !PERMISSIONS.has(root.permission as SnapshotPermission)) {
-        throw new Error('manifest.permission must be read-only, workspace-write, or danger-full-access')
+        throw new Error('manifest.permission must be read-only, workspace-write, danger-full-access, or auto')
       }
       permission = root.permission as SnapshotPermission
     }
+
+    let declaredSandbox: SnapshotSandboxMode | undefined
+    if (root.sandbox !== undefined) {
+      if (typeof root.sandbox !== 'string' || !SANDBOX_MODES.has(root.sandbox as SnapshotSandboxMode)) {
+        throw new Error('manifest.sandbox must be read-only, workspace-write, or danger-full-access')
+      }
+      declaredSandbox = root.sandbox as SnapshotSandboxMode
+    }
+
+    let capability: SnapshotCapability | undefined
+    if (root.capability !== undefined) {
+      if (root.capability !== 'unconfined' && root.capability !== 'escalation'
+        && root.capability !== 'interactive') {
+        throw new Error('manifest.capability must be unconfined, escalation, or interactive')
+      }
+      capability = root.capability
+    }
+    const preset = permission === undefined ? undefined : PERMISSION_PRESETS[permission]
+    if (preset !== undefined && declaredSandbox !== undefined && preset.sandbox !== declaredSandbox) {
+      throw new Error(
+        `manifest.permission "${permission as string}" mounts sandbox mode "${preset.sandbox}" but `
+        + `manifest.sandbox declares "${declaredSandbox}"`,
+      )
+    }
+    // The preset owns the approval policy; without one the composition derives it
+    // from the sandbox mode alone, which is what makes `DSH_PERMISSION_MODE`
+    // express the pair. A capability that needs the other policy cannot be pinned
+    // by mode alone, so it must name the preset that expresses it.
+    const effectiveApproval = preset?.approval
+      ?? (declaredSandbox === 'danger-full-access' ? 'never' : declaredSandbox === undefined ? undefined : 'ask')
+    if (capability !== undefined && effectiveApproval !== undefined
+      && CAPABILITY_APPROVAL[capability] !== effectiveApproval) {
+      const origin = permission === undefined
+        ? `manifest.sandbox "${declaredSandbox as string}" runs "${effectiveApproval}"; declare the permission preset that expresses it`
+        : `manifest.permission "${permission}" mounts "${effectiveApproval}"`
+      throw new Error(
+        `manifest.capability "${capability}" needs approval policy "${CAPABILITY_APPROVAL[capability]}" but ${origin}`,
+      )
+    }
+    const resolvedCapability: SnapshotCapability = capability
+      ?? (effectiveApproval === undefined
+        ? 'unconfined'
+        : effectiveApproval === 'ask' ? 'escalation' : 'unconfined')
+    const resolvedSandbox: SnapshotSandboxMode = declaredSandbox
+      ?? preset?.sandbox
+      ?? CAPABILITY_SANDBOX_MODE[resolvedCapability]
 
     let environment: Record<string, string> | undefined
     if (root.environment !== undefined) {
@@ -419,6 +513,8 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
       ...(replay === undefined ? {} : { replay }),
       ...(platform === undefined ? {} : { platform }),
       ...(permission === undefined ? {} : { permission }),
+      sandbox: resolvedSandbox,
+      capability: resolvedCapability,
       ...(environment === undefined ? {} : { environment }),
       ...(workspace === undefined ? {} : { workspace }),
       ...(input === undefined ? {} : { input }),

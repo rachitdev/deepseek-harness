@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "class": "web/web-minimal-compact",
+  "capability": "interactive",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "read_image",
+        "working_directory"
+      ],
+      "digest": "sha256:89a85b45e05753efe14736807cf267e902b7b6e816bfd1561201c347128e266c"
+    },
+    {
+      "tools": [
+        "bash",
+        "read_image",
+        "working_directory"
+      ],
+      "digest": "sha256:89a85b45e05753efe14736807cf267e902b7b6e816bfd1561201c347128e266c"
+    }
+  ]
+}

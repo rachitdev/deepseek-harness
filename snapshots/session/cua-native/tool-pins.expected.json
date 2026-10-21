@@ -1,0 +1,38 @@
+{
+  "version": 2,
+  "class": "session/cua-native/cua-native",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "cua",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:6ab3527642a9b71bae519d00bdb54f25e378b80b2843cc6f927e11d81c3ec65a"
+    }
+  ]
+}

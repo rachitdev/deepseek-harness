@@ -6,3 +6,5 @@ recording: authored
 header:
   class: web-minimal-image
   pin: true
+capability: interactive
+permission: workspace-write

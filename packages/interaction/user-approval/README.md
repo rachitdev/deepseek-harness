@@ -107,7 +107,7 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-The first request and each effective policy change append a full runtime-context snapshot after retained history. Under `ask`, the approval contribution states that configured answerers may be consulted and absence fails closed. Under `never`, it states the deterministic rejection and non-escalation consequence. Unchanged requests retain the earlier snapshot without adding another message.
+The first request and each effective policy change append a full runtime-context snapshot after retained history. Under `ask`, the approval contribution states that configured answerers may be consulted and absence fails closed. Under `never`, it states the deterministic rejection and non-escalation consequence, and prompt assembly removes `sandbox_permissions` and `justification` from every assembled tool schema and the escalation retry hint from every tool description; the registered schema keeps both, so a later switch to `ask` restores them. Unchanged requests retain the earlier snapshot without adding another message.
 
 ##### Ask-policy contribution
 
@@ -120,8 +120,6 @@ Approval policy: ask. Operations that require approval may ask through the confi
 ```markdown
 Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).
 ```
-
-When the effective policy is `never`, prompt assembly also removes `sandbox_permissions` and `justification` from every tool schema and strips the same-turn escalation retry hint from tool descriptions. The registry schema stays intact so a later switch to `ask` still has the lever.
 
 #### Token effect
 

@@ -1,7 +1,8 @@
 /** Process reservations retain native cleanup ownership across stream and allocation failures. */
 import { once } from 'node:events'
 import { chmod, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises'
-import { createConnection, type Socket } from 'node:net'
+import { createConnection, createServer, type Socket } from 'node:net'
+import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
 import type { SubprocessHandle, SubprocessOutcome, SubprocessTerminalHandle } from '@deepseek-ai/dsh-subprocess'
@@ -82,6 +83,50 @@ function terminal() {
     pid: 42, output, done: completion.promise, write, inspectForeground, signalForeground, terminate,
   }
   return { handle, completion, output, write, resize, inspectForeground, signalForeground, terminate }
+}
+
+/**
+ * Whether this host binds a Unix socket at `socketPath`.
+ * @param socketPath - candidate socket path.
+ * @returns `true` after the listener binds, `false` when the host refuses the path.
+ */
+async function hostBinds(socketPath: string): Promise<boolean> {
+  const server = createServer()
+  const outcome = new Promise<boolean>((resolve) => {
+    server.once('error', () => { resolve(false) })
+    server.listen(socketPath, () => { resolve(true) })
+  })
+  try {
+    return await outcome
+  } finally {
+    await new Promise<void>((resolve) => { server.close(() => { resolve() }) })
+  }
+}
+
+/**
+ * Helper root whose stream socket path this host refuses to bind. `sun_path` bounds a Unix
+ * socket path in bytes and differs per platform (104 on macOS, 108 on Linux) and between
+ * kernels, so the boundary is measured on this host instead of assumed. The root keeps the
+ * layout `RemoteProcesses.prepare` builds: a per-reservation directory holding one socket per
+ * stream.
+ * @param scratch - empty directory the caller owns and removes.
+ * @returns the root that puts a reservation's `stdout` socket one probe step past the longest
+ *   path this host binds.
+ */
+async function unbindableRoot(scratch: string): Promise<string> {
+  let root = scratch
+  while (root.length < 800) {
+    const grow = Math.min(100, 799 - root.length)
+    if (grow <= 0) break
+    root = join(root, 'x'.repeat(grow))
+    await mkdir(root)
+    const directory = join(root, 'r'.repeat(36))
+    await mkdir(directory)
+    const binds = await hostBinds(join(directory, 'stdout'))
+    await rm(directory, { recursive: true, force: true })
+    if (!binds) return root
+  }
+  throw new Error('this host bound every Unix socket path the limit probe reached')
 }
 
 describe.skipIf(process.platform === 'win32')('SSH helper process settlement', () => {
@@ -200,12 +245,14 @@ describe.skipIf(process.platform === 'win32')('SSH helper process settlement', (
 
   it('rolls back a listener path that exceeds the operating system socket limit', async () => {
     const root = await mkdtemp('/tmp/dsh-ssh-long-')
-    const longRoot = `${root}/${'x'.repeat(140)}`
-    await mkdir(longRoot)
-    const owner = new RemoteProcesses(new Context(), longRoot, 1, 5000)
     try {
-      await expect(owner.prepare(ordinaryRequest)).rejects.toThrow()
-    } finally { await owner.close(); await rm(root, { recursive: true, force: true }) }
+      const longRoot = await unbindableRoot(root)
+      const owner = new RemoteProcesses(new Context(), longRoot, 1, 5000)
+      try {
+        await expect(owner.prepare(ordinaryRequest)).rejects.toThrow()
+        expect(await readdir(longRoot)).toEqual([])
+      } finally { await owner.close() }
+    } finally { await rm(root, { recursive: true, force: true }) }
   })
 
   it('continues collecting while a live snapshot waits for acknowledgement', async () => {

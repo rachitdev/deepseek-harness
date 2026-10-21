@@ -1,0 +1,43 @@
+{
+  "version": 2,
+  "class": "session/browser-use-stagehand-native/browser-use-stagehand-native",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "stagehand_act",
+        "stagehand_extract",
+        "stagehand_navigate",
+        "stagehand_observe",
+        "stagehand_screenshot",
+        "stagehand_tabs",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:82f0a8fc2c697b11dd6a99daaff98fe7ae8a5c5e380c2443f6c6f38ec685c985"
+    }
+  ]
+}

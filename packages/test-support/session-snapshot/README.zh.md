@@ -84,7 +84,15 @@ Headless/ACP 与 SDK 适配器在规范化之前，将原始目录中的子创�
 
 ### 固定请求 header 与系统提示
 
-每个 pin 默认拥有其生成的 `system-prompt.expected.md` 或 `tool-schemas.expected.json` 伴随文件；当完整的对应序列相同时，`systemPromptSource` 与 `toolSchemasSource` 指定另一个 pin 作为来源，因此每个不同版本只提交一次。系统提示是 surface 节点 0，作为 `system/message` 事件记录在该步骤第一个 `request/header` 之前；每个 fixture 把其文本块存储为 `"text":"{{system}}"`，提示词伴随文件保留完整文本。该 pin 的 `request/header` 事件存储 `"tools":"{{tools}}"`，同时保留配置与原因，结构化 schema 伴随文件保留完整目录。包含 developer 消息的日志会在各 header 中保留有序工具名，而不使用 token，以便继续校验历史工具添加引用。自身作用域组合出不同请求的 child Session 按 fixture 索引以 `pinsChildToolSchemas` 与 `pinsChildSystemPrompts` 单独声明。运行中改变请求 header 的场景声明 `expectedHeaderChanges`；运行中提示词发生变化的场景——替换节点 0，或在 `in-history` 路由上追加到已缓存历史之后——声明 `expectedPromptChanges`，每次变化在提示词伴随文件中增加一个 `<!-- system/message change N -->` 小节。manifest 中对应字段为 `header.changes` 与 `header.promptChanges`。
+每个 pin 默认拥有其生成的 `system-prompt.expected.md`；当完整的提示词序列相同时，`systemPromptSource` 指定另一个 pin 作为来源，因此每个不同提示词只提交一次。系统提示是 surface 节点 0，作为 `system/message` 事件记录在该步骤第一个 `request/header` 之前；每个 fixture 把其文本块存储为 `"text":"{{system}}"`，提示词伴随文件保留完整文本。
+
+工具面以名称与摘要固定：`tool-pins.expected.json` 记录 `version`、它所属的生成目录 `class`、该 class 的 `capability`，以及每个请求修订项的一组有序模型可见 `tools` 名称与一个覆盖该规范修订的 SHA-256 `digest`；能力不同的修订（例如固定在 `never` 的委派子会话）会声明自己的 `capability`。schema 正文存放在生成的 `docs/tool-catalog.json` 中，以该摘要为键并按 class 分组，因此一次 schema 编辑只改写一个共享产物，pin 保持可读。`sha256` 覆盖规范 JSON（键已排序），因此键顺序与无关的重新格式化不会移动摘要，而正文、名称或顺序变化一定会移动。该 pin 的 `request/header` 事件存储 `"tools":"{{tools}}"`；包含 developer 消息的日志改用有序工具名而非 token，以便继续校验历史工具添加引用。自身作用域组合出不同请求的 child Session 按 fixture 索引以 `childToolSchemas` 与 `childSystemPrompts` 单独声明，这些场景保留各自可读的 `tool-schemas.<n>.expected.json` 正文；Web fork 场景把父子两代请求面表达为同一条 pin 的两个修订项。
+
+每个 class 声明其组合必须挂载的 `capability`。`unconfined` 挂载审批策略 `never`，此时 `dsh-user-approval` 会从装配后的工具列表中移除 `sandbox_permissions` 与 `justification`，因此这些 schema 不得宣告升级；`escalation` 挂载审批策略 `ask`，且由可约束沙箱支撑，因此至少一个可变工具族宣告这两个参数，并使用闭集 `read-only | workspace-write | danger-full-access` 枚举；`interactive` 同样挂载审批策略 `ask`，但没有支持升级的后端，因此任何工具族都不得宣告它们。测试框架通过 `DSH_PERMISSION_MODE` 强制该 capability（场景声明的 `permission` 优先），并断言记录的 `approval/policy` 一致，因此环境层面不同的权限模式无法悄悄改变模型所见。同一 header class 的场景必须声明相同 capability：宣告差异会改变 schema，混合 class 无法只有一份 pin。
+
+`mode: 'repin'`（`DSH_SNAPSHOT=repin`）只重写各 class 的 pin，并在 `$DSH_SNAPSHOT_CATALOG_PARTS` 下为每个 class 暂存一个目录片段；`scripts/gen-snapshot-tool-catalog.ts` 在 ACP、SDK 与 headless 套件上运行它，把片段合并进 `docs/tool-catalog.json`，其 `--check` 无需启动套件即可从已提交目录重新推导每个 pin。目录按请求修订项记录每个 class 的工具，因此同一个 class 可以在请求之间合法地改变工具面。Web 通道从自己的 refresh 运行写入同样的 pin 与片段，`--check` 只校验而不采集。
+
+运行中改变请求 header 的场景声明 `expectedHeaderChanges`；运行中提示词发生变化的场景——替换节点 0，或在 `in-history` 路由上追加到已缓存历史之后——声明 `expectedPromptChanges`，每次变化在提示词伴随文件中增加一个 `<!-- system/message change N -->` 小节。manifest 中对应字段为 `header.changes` 与 `header.promptChanges`。
 
 ### 平台与组合变体
 
@@ -93,7 +101,8 @@ Headless/ACP 与 SDK 适配器在规范化之前，将原始目录中的子创�
 ### 可能出什么问题
 
 - **持久记录等待超时**——即使首次日志收集就超过期限，`waitForTurnStart`、`waitForTurnEnd`、`waitForSubagentTurnEnd`、`waitForGoalPhase`、`waitForInboxMessage`、`waitForTitleAfterTurnEnd` 和 `waitForEventAfterTurnEnd` 也会指出会话或子会话及等待期限。子会话等待还会指出目标轮次。这些等待都通过错误的 cause 保留底层失败。`waitForTurnStart` 会立即拒绝格式错误的轮次记录。
-- **fixture 保护拒绝已提交文件**——遗留场景目录、缺失文件、一个 header 类别包含多个 pin、重复的伴随文件内容、未擦除的提示文本或工具 schema、没有前置 `system/message` 的 `request/header`，以及格式错误的 pin header 都会在比较运行前使套件失败。
+- **fixture 保护拒绝已提交文件**——遗留场景目录、缺失文件、一个 header 类别包含多个 pin、成员 capability 不一致的 class、重复的提示词伴随文件、未擦除的提示文本或工具 schema、没有前置 `system/message` 的 `request/header`，以及格式错误的 pin header 都会在比较运行前使套件失败。
+- **pin 与其目录不一致**——失败信息会指出 class、发生分歧的工具或 JSON 路径，以及是名称、摘要还是目录正文发生了移动；pin 中的摘要若在 `docs/tool-catalog.json` 中不存在，说明目录未重新生成。
 - **会话收集需要原始 JSONL mode**——快照配置使用 JSONL 后端的 `compression: 'none'`；压缩 JSONL 没有快照收集路径。
 - **构建 mode 需要当前产物**——选择 `DSH_EXAMPLE_MODE=lib` 前先运行 `pnpm run build`；源 mode 仍是零构建路径。
 

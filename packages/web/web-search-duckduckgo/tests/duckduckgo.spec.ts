@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import WebRuntime from '@deepseek-ai/dsh-web'
 import { DuckDuckGoSearchProvider, DUCKDUCKGO_DEFAULT_BASE_URL, DUCKDUCKGO_PROVIDER_ID } from '@deepseek-ai/dsh-web-search-duckduckgo'
@@ -19,6 +19,35 @@ function litePage(entries: ReadonlyArray<{ title: string; url: string; snippet?:
 
 function htmlResponse(body: string, init: ResponseInit = {}): Response {
   return new Response(body, { status: 200, headers: { 'content-type': 'text/html' }, ...init })
+}
+
+/**
+ * The single call the provider made to the stubbed `fetch`.
+ * @param mock - the typed `fetch` stub installed for this test.
+ * @returns the requested URL and the init the provider passed with it.
+ */
+function recordedFetch(mock: Mock<typeof fetch>): { url: URL; init: RequestInit | undefined } {
+  const [call] = mock.mock.calls
+  if (call === undefined) throw new Error('the provider never called fetch')
+  return { url: new URL(String(call[0])), init: call[1] }
+}
+
+/** A response whose body read rejects, for the provider's body-failure paths. */
+class FailingBodyResponse extends Response {
+  readonly #failure: unknown
+
+  /**
+   * @param failure - the value the body read rejects with, such as an abort or a stream error.
+   */
+  constructor(failure: unknown) {
+    super('')
+    this.#failure = failure
+  }
+
+  /** @returns a promise that always rejects with the recorded failure. */
+  override text(): Promise<string> {
+    return Promise.reject(this.#failure)
+  }
 }
 
 afterEach(() => {
@@ -134,33 +163,31 @@ describe('DuckDuckGoSearchProvider availability', () => {
 
 describe('DuckDuckGoSearchProvider request mapping', () => {
   it('sends a GET with the query parameter and attribution headers', async () => {
-    const fetchMock = vi.fn(async () => htmlResponse(litePage([])))
+    const fetchMock = vi.fn<typeof fetch>(async () => htmlResponse(litePage([])))
     vi.stubGlobal('fetch', fetchMock)
 
     await new DuckDuckGoSearchProvider(options).search({ query: 'hello world' })
 
     expect(fetchMock).toHaveBeenCalledOnce()
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
+    const { url, init } = recordedFetch(fetchMock)
     expect(url.toString()).toBe('https://lite.ddg.test/lite/?q=hello+world')
     expect(init).toMatchObject({ method: 'GET', redirect: 'error' })
-    expect(init.headers).toMatchObject({ accept: 'text/html', 'user-agent': 'deepseek-harness/0.0.1' })
+    expect(init?.headers).toMatchObject({ accept: 'text/html', 'user-agent': 'deepseek-harness/0.0.1' })
   })
 
   it('appends the region filter when configured', async () => {
-    const fetchMock = vi.fn(async () => htmlResponse(litePage([])))
+    const fetchMock = vi.fn<typeof fetch>(async () => htmlResponse(litePage([])))
     vi.stubGlobal('fetch', fetchMock)
     await new DuckDuckGoSearchProvider({ ...options, region: 'de-de' }).search({ query: 'q' })
-    const [url] = fetchMock.mock.calls[0] as unknown as [URL]
-    expect(url.searchParams.get('kl')).toBe('de-de')
+    expect(recordedFetch(fetchMock).url.searchParams.get('kl')).toBe('de-de')
   })
 
   it('forwards the abort signal', async () => {
-    const fetchMock = vi.fn(async () => htmlResponse(litePage([])))
+    const fetchMock = vi.fn<typeof fetch>(async () => htmlResponse(litePage([])))
     vi.stubGlobal('fetch', fetchMock)
     const controller = new AbortController()
     await new DuckDuckGoSearchProvider(options).search({ query: 'q' }, controller.signal)
-    const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
-    expect(init.signal).toBe(controller.signal)
+    expect(recordedFetch(fetchMock).init?.signal).toBe(controller.signal)
   })
 })
 
@@ -199,15 +226,13 @@ describe('DuckDuckGoSearchProvider error handling', () => {
   })
 
   it('surfaces an abort during body read as WEB_ABORTED', async () => {
-    const body = { text: () => Promise.reject(new DOMException('aborted', 'AbortError')), ok: true, status: 200 }
-    vi.stubGlobal('fetch', vi.fn(async () => body as unknown as Response))
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => new FailingBodyResponse(new DOMException('aborted', 'AbortError'))))
     await expect(new DuckDuckGoSearchProvider(options).search({ query: 'q' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
   })
 
   it('maps a failing body read to WEB_PROVIDER_ERROR', async () => {
-    const body = { text: () => Promise.reject(new TypeError('stream broken')), ok: true, status: 200 }
-    vi.stubGlobal('fetch', vi.fn(async () => body as unknown as Response))
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => new FailingBodyResponse(new TypeError('stream broken'))))
     const error: unknown = await new DuckDuckGoSearchProvider(options).search({ query: 'q' })
       .then(() => undefined, (e: unknown) => e)
     expect(error).toMatchObject({ code: 'WEB_PROVIDER_ERROR' })
@@ -241,26 +266,24 @@ describe('web-search-duckduckgo plugin registration', () => {
   })
 
   it('threads baseURL and region config into the request', async () => {
-    const fetchMock = vi.fn(async () => htmlResponse(litePage([])))
+    const fetchMock = vi.fn<typeof fetch>(async () => htmlResponse(litePage([])))
     vi.stubGlobal('fetch', fetchMock)
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { searchProvider: DUCKDUCKGO_PROVIDER_ID })
     const fiber = await ctx.plugin(duckduckgoPlugin, { baseURL: options.baseURL, region: 'us-en' })
     await ctx.web.search({ query: 'q' })
-    const [url] = fetchMock.mock.calls[0] as unknown as [URL]
-    expect(url.toString()).toBe('https://lite.ddg.test/lite/?q=q&kl=us-en')
+    expect(recordedFetch(fetchMock).url.toString()).toBe('https://lite.ddg.test/lite/?q=q&kl=us-en')
     await fiber.dispose()
   })
 
   it('falls back to the public Lite endpoint when config omits baseURL', async () => {
-    const fetchMock = vi.fn(async () => htmlResponse(litePage([])))
+    const fetchMock = vi.fn<typeof fetch>(async () => htmlResponse(litePage([])))
     vi.stubGlobal('fetch', fetchMock)
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { searchProvider: DUCKDUCKGO_PROVIDER_ID })
     const fiber = await ctx.plugin(duckduckgoPlugin, {})
     await ctx.web.search({ query: 'q' })
-    const [url] = fetchMock.mock.calls[0] as unknown as [URL]
-    expect(url.toString()).toBe('https://lite.duckduckgo.com/lite/?q=q')
+    expect(recordedFetch(fetchMock).url.toString()).toBe('https://lite.duckduckgo.com/lite/?q=q')
     await fiber.dispose()
   })
 })

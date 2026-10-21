@@ -1,0 +1,38 @@
+{
+  "version": 2,
+  "class": "session/product-subagent-result-diagnostic/product-subagent-result-diagnostic",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_codex",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:031931d45ba81a336b3c4310de8f8f776e9ba45a27e79af65ddd768ac470b8ce"
+    }
+  ]
+}

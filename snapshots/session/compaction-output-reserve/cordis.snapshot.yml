@@ -1,5 +1,5 @@
-# With 1,800 tokens of headroom, a 1,000-token output reservation lowers the
-# trigger from 6,822 to 5,822, between the history and its condensed replacement.
+# With 2,000 tokens of headroom, a 1,000-token output reservation lowers the
+# trigger from 6,622 to 5,622, between the history and its condensed replacement.
 
 - id: agent-instructions
   disabled: true
@@ -18,7 +18,7 @@
   name: '@deepseek-ai/dsh-compaction-basic'
   config:
     thresholdRatio: 0.8
-    headroomTokens: 1800
+    headroomTokens: 2000
     retainTokens: 20
     maxTokens: 32
 

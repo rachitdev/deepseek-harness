@@ -7,3 +7,5 @@ header:
   class: web-default
 workspace:
   final: true
+permission: workspace-write
+capability: escalation

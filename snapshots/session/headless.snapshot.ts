@@ -14,13 +14,16 @@ import { releasedV0SessionFormatCodec } from '@deepseek-ai/dsh-session-format-v0
 import type { SessionFormatEvent, SessionFormatMigrationContext } from '@deepseek-ai/dsh-session-format'
 import { assertWorkspaceOutsideTemp, outsideTempWorkspaceParent } from '../../scripts/snapshot-workspace-parent.ts'
 import {
+  assertCapabilityApproval,
   assertPersistedSessionVersion,
+  assertPinnedHeader,
   assertSessionFixtureVersion,
   captureExpectedWorkspaceSnapshot,
   captureWorkspaceSnapshot,
   fixtureContext,
   formatSystemPromptSnapshot,
   formatToolSchemasSnapshot,
+  headerWithoutTools,
   latestPersistedSessionPaths,
   materializeProfilePatch,
   normalizeSessionSnapshots,
@@ -28,8 +31,10 @@ import {
   normalizedSystemPrompts,
   normalizedToolSchemas,
   parseSnapshotManifest,
+  readHeaderPin,
   parseToolSchemasSnapshot,
   redactSessionSnapshotIds,
+  recordedApprovalPolicy,
   refreshFixtureReplacements,
   restorePinnedToolSchemas,
   scrubSessionSnapshot,
@@ -43,6 +48,7 @@ import {
   snapshotSpillRoot,
   stabilizeFixtureMessageIds,
   stabilizeRefreshLog,
+  writeHeaderPin,
   tokenizeSessionFixtureCwd,
   writesCurrentSessionFixtures,
   type HarvestedLog,
@@ -58,12 +64,16 @@ const repoRoot = fileURLToPath(new URL('../../', import.meta.url))
 const snapshotsRoot = fileURLToPath(new URL('./', import.meta.url))
 const dshBin = join(repoRoot, 'apps/cli/src/bin.ts')
 const tsconfigPath = join(repoRoot, 'tsconfig.json')
+/** The generated catalog every header pin points at. */
+const toolCatalogPath = join(repoRoot, 'docs/tool-catalog.json')
+/** Directory where a catalog-regeneration run drops one fragment per header class. */
+const catalogPartsDir = process.env.DSH_SNAPSHOT_CATALOG_PARTS
 const editingCordisSkill = join(
   repoRoot,
   'packages/preset/agent-preset/skills/editing-cordis-compositions/SKILL.md',
 )
 
-type SnapshotMode = 'replay' | 'record' | 'refresh'
+type SnapshotMode = 'replay' | 'record' | 'refresh' | 'repin'
 
 function snapshotMode(value: string | undefined): SnapshotMode {
   switch (value) {
@@ -72,11 +82,15 @@ function snapshotMode(value: string | undefined): SnapshotMode {
     case 'replay': return 'replay'
     case 'record': return 'record'
     case 'refresh': return 'refresh'
+    case 'repin': return 'repin'
     default: throw new Error(`unknown DSH_SNAPSHOT mode: ${value}`)
   }
 }
 
 const mode = snapshotMode(process.env.DSH_SNAPSHOT)
+// Repinning only rewrites pins and catalog fragments, so Session fixtures stay
+// replay inputs in that mode.
+const sessionWriteMode: 'replay' | 'record' | 'refresh' = mode === 'repin' ? 'replay' : mode
 const RUNTIME_WORKSPACE_ENTRIES = ['.agents', '.dsh', '.snapshot-patches'] as const
 
 interface JsonObject {
@@ -296,10 +310,15 @@ async function writeHeaderSidecars(
         formatSystemPromptSnapshot(prompts[0] as string, prompts.slice(1)),
       )
     }
-    if (schemaOwner === scenario.name) {
-      await writeFile(
-        join(scenario.dir, 'tool-schemas.expected.json'),
-        formatToolSchemasSnapshot(schemas[0] as unknown[], schemas.slice(1)),
+    // The class pin always lives with its pin owner; a declared schema source
+    // is only a statement that the bodies match.
+    if (scenario.manifest.header.pin === true) {
+      const headerClass = `${scenario.manifest.composition}/${scenario.manifest.header.class ?? 'default'}`
+      await writeHeaderPin(
+        { snapshotsDir: snapshotsRoot, ownerDir: scenario.dir, headerClass },
+        scenario.manifest.capability ?? 'unconfined',
+        schemas,
+        catalogPartsDir,
       )
     }
   }
@@ -910,13 +929,17 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
     throw new Error(`${scenario.name}: header sidecar source is not a headless scenario`)
   }
   const prompt = await readFile(join(promptOwner.dir, 'system-prompt.expected.md'), 'utf8')
-  const schemas = parseToolSchemasSnapshot(await readFile(join(schemaOwner.dir, 'tool-schemas.expected.json'), 'utf8'))
-  const schemaSets = [schemas.initial, ...schemas.changes]
-  expect(schemaSets, `${scenario.name}: pin tool-schema count`).toHaveLength(pinned.length)
-  const reconstructed = pinned.map((header, index) => restorePinnedToolSchemas(
-    header,
-    schemaSets[index] as unknown[],
-  ))
+  const headerClass = pin.manifest.header.class ?? 'default'
+  const capability = pin.manifest.capability ?? 'unconfined'
+  // A class name is only unique inside its composition, so the catalog key
+  // carries both.
+  const { pins, catalog } = await readHeaderPin(pin.dir, toolCatalogPath)
+  // The pin names its own catalog class: a class name is unique only inside its
+  // composition, and a borrowed class keeps its owner's namespace.
+  const catalogKey = pins.class
+  expect(pins.class.split('/').at(-1), `${scenario.name}: pin class`).toBe(headerClass)
+  expect(pins.sets, `${scenario.name}: pin tool-pin count`).toHaveLength(pinned.length)
+  expect(pins.capability, `${scenario.name}: pin capability`).toBe(capability)
 
   const childPrompts = new Map<number, string>()
   const childSchemas = new Map<number, unknown[][]>()
@@ -936,11 +959,21 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
       expect(prompts.length, `${scenario.name}: system/message count`)
         .toBe(1 + (logIndex === 0 ? pin.manifest.header.promptChanges ?? 0 : 0))
     }
+    // A delegated child pins its own approval policy, so only the primary
+    // session proves what the composition mounted.
+    if (logIndex === 0) {
+      assertCapabilityApproval(capability, recordedApprovalPolicy(log.content), `${scenario.name}: session ${logIndex}`)
+    }
     for (const [index, header] of headers.entries()) {
       const selectedSchemas = childSchemas.get(logIndex)?.[index]
-      const base = reconstructed[index] ?? reconstructed[0]
-      const expected = selectedSchemas === undefined ? base : { ...base as JsonObject, tools: selectedSchemas }
-      expect(header, `${scenario.name}: request header ${index + 1}`).toEqual(expected)
+      const pinnedHeader = pinned[index] ?? pinned[0]
+      const label = `${scenario.name}: request header ${index + 1}`
+      if (selectedSchemas === undefined) {
+        assertPinnedHeader(header, pinnedHeader, { label, className: catalogKey, pins, catalog }, Math.min(index, pins.sets.length - 1))
+        continue
+      }
+      expect(headerWithoutTools(header), `${label} (except tools)`).toEqual(headerWithoutTools(pinnedHeader))
+      expect((header as JsonObject).tools, `${label} tools`).toEqual(selectedSchemas)
     }
     if (prompts.length > 0) {
       expect(
@@ -1185,8 +1218,8 @@ describe('headless recorded-session snapshots', () => {
 
       expect(await readFile(join(directory, 'system-prompt.expected.md'), 'utf8'))
         .toBe('fresh system prompt\n')
-      expect(await readFile(join(directory, 'tool-schemas.expected.json'), 'utf8'))
-        .toContain('"name": "fresh_tool"')
+      expect(await readFile(join(directory, 'tool-pins.expected.json'), 'utf8'))
+        .toContain('"fresh_tool"')
       expect(await readFile(join(directory, 'session.v1.jsonl'), 'utf8')).toBe(retained)
       expect(sessionFixtureNames(await readdir(directory))).toEqual(['session.v1.jsonl'])
     } finally {
@@ -1302,9 +1335,7 @@ describe('headless recorded-session snapshots', () => {
             ...(replaying && scenario.manifest.replay?.override === true
               ? { DSH_SNAPSHOT_OVERRIDE: join(scenario.dir, 'replay.override.json') }
               : {}),
-            ...(scenario.manifest.permission === undefined
-              ? {}
-              : { DSH_PERMISSION_MODE: scenario.manifest.permission }),
+            DSH_PERMISSION_MODE: scenario.manifest.sandbox,
             ...scenario.manifest.environment,
             ...(scenario.name === 'mcp-resources' || scenario.name === 'mcp-resources-ptc' ? {
               DSH_MCP_RESOURCES_FIXTURE: join(repoRoot, 'packages/mcp/mcp-client/tests/fixtures/resources-server.ts'),
@@ -1393,7 +1424,7 @@ describe('headless recorded-session snapshots', () => {
       const expectedStderr = stderrFromSession(stderrLog)
       const actualContext = contextOf(actualLogs.map(log => log.content))
 
-      if (writesCurrentSessionFixtures(scenario.manifest, mode)) {
+      if (writesCurrentSessionFixtures(scenario.manifest, sessionWriteMode)) {
         fixtures = await writeSessionFixtures(
           scenario,
           actualLogs,
@@ -1440,7 +1471,8 @@ describe('headless recorded-session snapshots', () => {
           : records(expectedSnapshots[index] as string)
         expect(actualRecords, `${scenario.name}: session ${index}`).toEqual(expectedRecords)
       }
-      await verifyHeaders(scenario, actualLogs, actualContext)
+      // A pin-refresh run regenerates the pins it would otherwise check.
+      if (mode !== 'repin') await verifyHeaders(scenario, actualLogs, actualContext)
 
       if (initialWorkspace === undefined || finalWorkspace === undefined) {
         throw new Error(`${scenario.name}: workspace was not captured around the profile run`)

@@ -116,13 +116,19 @@ export {
   applyChildComposition,
   captureDelegatedPolicyOverrides,
   childSessionMeta,
+  observeDelegatedApprovalRejections,
   parentAgentOptionsForDelegation,
   resolveChildAgentOptions,
   resolveChildDepth,
+  SUBAGENT_DELEGATION_CONTEXT,
   SubagentDepthError,
 } from './child-agent.ts'
-export type { ChildComposition, DelegatedPolicyOverrides } from './child-agent.ts'
-export type { AgentMessageSource, SubagentSettledMessageSource } from './continuation-messages.ts'
+export type {
+  ChildComposition, DelegatedPolicyOverrides, DelegationRejectionSubscription,
+} from './child-agent.ts'
+export type {
+  AgentMessageSource, SubagentDelegationNoticeSource, SubagentSettledMessageSource,
+} from './continuation-messages.ts'
 export type * from './control-types.ts'
 export type { SubagentDescendantListEntry } from './list-children.ts'
 export type { SubagentRunEndInfo, SubagentRunInfo } from './types.ts'

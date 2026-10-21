@@ -1,0 +1,46 @@
+{
+  "version": 2,
+  "class": "web/web-cordis",
+  "capability": "escalation",
+  "sets": [
+    {
+      "tools": [
+        "ask_user_question",
+        "bash",
+        "cordis_define",
+        "cordis_inspect_list",
+        "cordis_inspect_query",
+        "cordis_inspect_self",
+        "cordis_run",
+        "cordis_stop",
+        "cordis_undefine",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "present",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:099a984586cdca3da3c39572fc9dbdfca2b306fb9073b1061cb2ce016b2225d6"
+    }
+  ]
+}

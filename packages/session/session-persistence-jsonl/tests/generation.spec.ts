@@ -614,7 +614,7 @@ describe('JSONL immutable generation publication', () => {
       verifyCurrentFile: byteVerifier,
     })
     await expect(uncheckedPublication.publish())
-      .rejects.toThrow(/target bytes differ from the migrated generation/)
+      .rejects.toThrow(/target log differs from the migrated generation/)
   })
 
   it('handles empty, incomplete-record, and torn Zstandard migration sources', async () => {

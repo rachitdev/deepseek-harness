@@ -1,0 +1,42 @@
+{
+  "version": 2,
+  "class": "web/web-schedule",
+  "capability": "escalation",
+  "sets": [
+    {
+      "tools": [
+        "ask_user_question",
+        "bash",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "present",
+        "read",
+        "read_image",
+        "schedule_create",
+        "schedule_delete",
+        "schedule_list",
+        "schedule_update",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "write"
+      ],
+      "digest": "sha256:5f6610cb1c80ad11899b2238b3139a56d323332922028a0f1811a35b8b04a7a1"
+    }
+  ]
+}

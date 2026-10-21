@@ -308,7 +308,8 @@ ${image.mediaType} image, ${image.width}x${image.height} px, ${image.bytes} byte
  * Format a recognized-text read as the model-facing envelope. No image block
  * accompanies it, so this text is the whole payload; a capped result says so.
  * @param displayPath - the backend-resolved path rendered in the envelope's `<path>` element.
- * @param ocr - the recognized text and its provenance.
+ * @param ocr - the recognized text, plus the configured command's basename in `engine`,
+ * `lang` when configured, `bytesRead`, and `truncated` when the text was cut.
  * @returns the model-facing envelope carrying the recognized text.
  */
 export function formatOcrReadOutput(displayPath: string, ocr: ImageReadOcr): string {

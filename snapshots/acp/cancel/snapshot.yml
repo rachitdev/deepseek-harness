@@ -4,6 +4,8 @@ profile: acp
 composition: acp-default
 recording: authored
 header:
-  class: acp-default
+  class: acp-default-unconfined
+  pin: true
+  systemPromptSource: escalation-approved
 replay:
   override: true

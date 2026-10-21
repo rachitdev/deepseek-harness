@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "class": "sdk/sdk-minimal",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "str_replace_editor",
+        "working_directory"
+      ],
+      "digest": "sha256:62b8ea2dbf01be20e45526db3b4d03943e71415a79385a003e891e4cd0b58444"
+    }
+  ]
+}

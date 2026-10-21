@@ -71,6 +71,11 @@ interface ActivationBase {
    * not exist, so its teardown owes the parent no settlement account.
    */
   announced: boolean
+  /**
+   * Whether this epoch created the child Agent rather than resumed one. Only a
+   * creation owns the child's delegation facts; a resumed epoch inherits them.
+   */
+  readonly created: boolean
 }
 
 /** Resources retained only for the selected execution kind. */

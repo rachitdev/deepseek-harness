@@ -62,8 +62,8 @@ interface ToolArgsMap {
     workdir?: string;
     /** Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies. */
     run_in_background?: boolean;
-    /** The narrowest wider sandbox mode for a one-shot retry of the exact command the sandbox just denied; the retry asks the user for approval. */
-    sandbox_permissions?: "workspace-write" | "danger-full-access";
+    /** Sandbox mode for this one command. A narrower mode, including read-only, confines the command without approval. A wider mode is a one-shot retry of the exact command the sandbox just denied; the retry asks the user for approval. */
+    sandbox_permissions?: "read-only" | "workspace-write" | "danger-full-access";
     /** Required with sandbox_permissions: one sentence for the user explaining why this exact command needs the wider access. Use the language of the user’s current request. */
     justification?: string;
   } & Record<string, JsonValue>;
@@ -84,8 +84,8 @@ interface ToolArgsMap {
     new_string: string;
     /** Replace all matches. Defaults to false; when false, old_string must appear exactly once. */
     replace_all?: boolean;
-    /** The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval. */
-    sandbox_permissions?: "workspace-write" | "danger-full-access";
+    /** Sandbox mode for this one operation. A narrower mode, including read-only, confines the operation without approval. A wider mode is a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval. */
+    sandbox_permissions?: "read-only" | "workspace-write" | "danger-full-access";
     /** Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request. */
     justification?: string;
   } & Record<string, JsonValue>;
@@ -259,8 +259,8 @@ interface ToolArgsMap {
     file_path: string;
     /** Full UTF-8 text content to write. */
     content: string;
-    /** The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval. */
-    sandbox_permissions?: "workspace-write" | "danger-full-access";
+    /** Sandbox mode for this one operation. A narrower mode, including read-only, confines the operation without approval. A wider mode is a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval. */
+    sandbox_permissions?: "read-only" | "workspace-write" | "danger-full-access";
     /** Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request. */
     justification?: string;
   } & Record<string, JsonValue>;
@@ -420,7 +420,7 @@ interface ToolOutputMap {
   read_image: {
     /** Canonical absolute path in the filesystem execution world. */
     path: string;
-    image: {
+    image?: {
       attachmentId: string;
       mediaType: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
       bytes: number;
@@ -431,6 +431,13 @@ interface ToolOutputMap {
         width: number;
         height: number;
       };
+    };
+    ocr?: {
+      text: string;
+      engine: string;
+      lang?: string;
+      truncated?: boolean;
+      bytesRead: number;
     };
   };
   send_message: {

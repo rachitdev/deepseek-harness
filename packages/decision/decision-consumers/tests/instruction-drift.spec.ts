@@ -8,7 +8,7 @@ function driftResult(probability: number): DecisionResult {
   return {
     providerId: 'jev',
     answers: { drift: { type: 'boolean', probability } },
-  } as unknown as DecisionResult
+  }
 }
 
 const EVIDENCE = {
@@ -70,10 +70,10 @@ describe('assessInstructionDrift', () => {
 
   it('fails on a malformed provider answer rather than assuming no drift', async () => {
     const mock = createMockDecisionService(() =>
-      Promise.resolve({
+      Promise.resolve<DecisionResult>({
         providerId: 'bad',
         answers: { drift: { type: 'score', score: 2, probabilities: {} } },
-      } as unknown as DecisionResult),
+      }),
     )
     await expect(assessInstructionDrift(mock, EVIDENCE)).rejects.toThrow(/malformed answer/)
   })

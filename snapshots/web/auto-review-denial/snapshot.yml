@@ -8,3 +8,5 @@ header:
   pin: true
   systemPromptSource: fresh-round-trip
   toolSchemasSource: fresh-round-trip
+capability: escalation
+permission: auto

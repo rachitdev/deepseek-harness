@@ -32,7 +32,7 @@ describe('adjudicateSkillSelection', () => {
   })
 
   it('compares a disagreement and separates parallel from later skills', async () => {
-    const evaluate = vi.fn()
+    const evaluate = vi.fn<(request: DecisionRequest, signal?: AbortSignal) => Promise<DecisionResult>>()
       .mockResolvedValueOnce({
         providerId: 'jev',
         answers: {
@@ -66,7 +66,7 @@ describe('adjudicateSkillSelection', () => {
       disagreement: true,
     })
     expect(evaluate).toHaveBeenCalledTimes(2)
-    expect((evaluate.mock.calls[1] as unknown as [DecisionRequest] | undefined)?.[0].questions).toHaveProperty('phase:diagram-design')
+    expect(evaluate.mock.calls[1]?.[0].questions).toHaveProperty('phase:diagram-design')
   })
 
   it('rejects a DSH proposal outside the bounded candidate set', async () => {

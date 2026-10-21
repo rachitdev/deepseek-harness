@@ -195,10 +195,8 @@ describe('DecisionRuntime request validation', () => {
   it('rejects an unknown question type', async () => {
     const { decision } = await mountDecision()
     decision.registerProvider(makeProvider('p', available))
-    const request = {
-      state: 's',
-      questions: { odd: { type: 'ranking', instructions: 'i' } },
-    } as unknown as DecisionRequest
+    const request = { state: 's', questions: { odd: { type: 'ranking', instructions: 'i' } } } as const
+    // @ts-expect-error -- a request built from runtime data can carry a question type the union does not declare.
     await expect(decision.evaluate(request)).rejects.toThrow(
       expect.objectContaining({ code: 'DECISION_REQUEST_INVALID' }) as Error,
     )

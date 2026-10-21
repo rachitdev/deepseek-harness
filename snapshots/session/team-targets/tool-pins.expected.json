@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "class": "session/team-targets/team-targets",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "spawn_teammate",
+        "team_task_create",
+        "team_task_get",
+        "team_task_list",
+        "team_task_update",
+        "todo_write",
+        "update_goal",
+        "wait_agent",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:048792b47c5b3d676af80f882c09fafb549c594e0747973273f4737e0c2c4ebd"
+    }
+  ]
+}

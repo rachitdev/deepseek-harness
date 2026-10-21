@@ -1,0 +1,73 @@
+{
+  "version": 2,
+  "class": "session/plugin-manager-mcp/plugin-manager-mcp",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "plugin_manager",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:53c94b7220c4ca95e63f23609ce27acdf6a902f18d7a51f64bbb20c7b83b7f11"
+    },
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "list_mcp_resource_templates",
+        "list_mcp_resources",
+        "mcp__demo__ping",
+        "plugin_manager",
+        "read",
+        "read_image",
+        "read_mcp_resource",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:bd0f258bdc09423bfa08dce91ffa680b41eade144822180e10010a3ef86f8312"
+    }
+  ]
+}

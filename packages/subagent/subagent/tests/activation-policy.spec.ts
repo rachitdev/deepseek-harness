@@ -15,6 +15,7 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import SandboxedFileSystem from '@deepseek-ai/dsh-fs-sandbox'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import SandboxPolicyService, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
@@ -37,13 +38,16 @@ afterEach(async () => {
   await rm(workspace, { recursive: true, force: true })
 })
 
-async function setupWalled(script: Script): Promise<{ ctx: Context; parent: Agent }> {
+async function setupWalled(
+  script: Script,
+  options: { mode?: SandboxMode; preset?: 'workspace-write' | 'read-only' } = {},
+): Promise<{ ctx: Context; parent: Agent }> {
   const ctx = new Context()
   contexts.push(ctx)
   await mountAgentLoopTestDependencies(ctx)
   await mountLocalActivations(ctx)
   await ctx.plugin(SubagentRuntime)
-  await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: workspace })
+  await ctx.plugin(SandboxPolicyService, { mode: options.mode ?? 'workspace-write', workspaceRoot: workspace })
   await ctx.plugin(SandboxedFileSystem, { cwd: workspace })
   await ctx.plugin(ToolFs)
   await ctx.plugin(ApprovalService)
@@ -54,6 +58,12 @@ async function setupWalled(script: Script): Promise<{ ctx: Context; parent: Agen
     { provider: 'mock', model: 'mock' },
     { cwd: workspace },
   )
+  if (options.preset !== undefined) {
+    const preset = options.preset
+    ctx.provide('permissionPresets', {
+      current: (session: Session) => session === parent.session ? preset : 'custom',
+    } as never)
+  }
   return { ctx, parent }
 }
 
@@ -253,10 +263,12 @@ describe('in-process policy inheritance', () => {
     }
   })
 
-  it('leaves an unswitched sandbox on the deployment default while still pinning approval', async () => {
+  it('records a parent at the deployment default as an explicit delegation event', async () => {
     const script: Script = []
-    const { parent } = await setupWalled(script)
+    const { ctx, parent } = await setupWalled(script)
     const allowed = join(workspace, 'default-allowed.txt')
+    // No parent override: its effective mode is the deployment default.
+    expect(ctx.sandboxPolicy.overrideOf(parent.session)).toBeUndefined()
     script.push(
       toolCallResponse('write', 'write', { file_path: allowed, content: 'fine' }),
       textResponse('child done'),
@@ -267,11 +279,46 @@ describe('in-process policy inheritance', () => {
       await run.result
       const child = run.localAgent
       expect(await readFile(allowed, 'utf8')).toBe('fine')
-      expect(child.session.snapshotEvents().some(event => event.type === 'sandbox/mode')).toBe(false)
-      expect(child.session.snapshotEvents().filter(event => event.type === 'approval/policy')).toMatchObject([
-        { seq: 1, data: { policy: 'never', source: 'delegation' } },
+      // The child log states the mode it runs under, not only the delegated ones.
+      expect(child.session.snapshotEvents().slice(1, 3)).toMatchObject([
+        { type: 'sandbox/mode', seq: 1, data: { mode: 'workspace-write', source: 'delegation' } },
+        { type: 'approval/policy', seq: 2, data: { policy: 'never', source: 'delegation' } },
       ])
       expect(child.session.firstLiveSeq).toBe(0)
+    } finally {
+      await run.dispose()
+    }
+  })
+
+  it.each([
+    { preset: 'workspace-write', denied: false },
+    { preset: 'read-only', denied: true },
+  ] as const)('confines a child of a $preset-preset parent to $preset, not the widest mode', async ({ preset, denied }) => {
+    const script: Script = []
+    // The preset's confinement is the deployment default, so the parent log has no override.
+    const { ctx, parent } = await setupWalled(script, { mode: preset, preset })
+    expect(ctx.get('permissionPresets')?.current(parent.session)).toBe(preset)
+    expect(ctx.sandboxPolicy.resolve({ session: parent.session }).mode).toBe(preset)
+    const target = join(workspace, `${preset}-child.txt`)
+    script.push(
+      toolCallResponse('write', 'write', { file_path: target, content: 'child write' }),
+      textResponse('child done'),
+    )
+
+    const run = await startPreparedActivation(spawnRequest(parent), {})
+    try {
+      await run.result
+      const child = run.localAgent
+      expect(ctx.sandboxPolicy.resolve({ session: child.session }).mode).toBe(preset)
+      expect(ctx.sandboxPolicy.resolve({ session: child.session }).mode).not.toBe('danger-full-access')
+      expect(child.session.snapshotEvents().filter(event => event.type === 'sandbox/mode').at(-1))
+        .toMatchObject({ data: { mode: preset, source: 'delegation' } })
+      if (denied) {
+        await expect(readFile(target, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+        expect(toolResultTexts(child).join('\n')).toContain(READ_ONLY_DENIAL)
+      } else {
+        expect(await readFile(target, 'utf8')).toBe('child write')
+      }
     } finally {
       await run.dispose()
     }
@@ -315,6 +362,75 @@ describe('in-process policy inheritance', () => {
       )
       expect(asked?.data.toolName).toBe('write')
       expect(decided?.data).toMatchObject({ id: asked?.data.id, outcome: 'rejected' })
+    } finally {
+      await run.dispose()
+    }
+  })
+
+  it('reports an auto-rejected delegated ask to the parent where the scope was chosen', async () => {
+    const script: Script = []
+    const { parent } = await setupWalled(script, { mode: 'read-only', preset: 'read-only' })
+    const blocked = join(workspace, 'reported-blocked.txt')
+    script.push(
+      toolCallResponse('write', 'write', {
+        file_path: blocked,
+        content: 'escaped',
+        sandbox_permissions: 'workspace-write',
+        justification: 'test escalation from a delegated child',
+      }),
+      textResponse('child done'),
+      textResponse('parent noted the refusal'),
+    )
+
+    const run = await startPreparedActivation(spawnRequest(parent), {}, 'parent')
+    try {
+      await run.result
+      const child = run.localAgent
+      expect(toolResultTexts(child).join('\n'))
+        .toContain('the user rejected escalating this operation to "workspace-write"')
+
+      await parent.whenIdle()
+      const notices = parent.session.snapshotEvents().filter(
+        (event): event is SessionEvent<'user/message'> => event.type === 'user/message'
+          && event.data.source.kind === 'subagent-delegation',
+      )
+      expect(notices).toHaveLength(1)
+      expect(notices[0]?.data).toMatchObject({
+        source: { childSessionId: child.id, toolName: 'write' },
+      })
+      const text = notices[0]?.data.content
+        .flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
+      expect(text).toContain(`Delegated subagent ${child.id}`)
+      expect(text).toContain('"write"')
+    } finally {
+      await run.dispose()
+    }
+  })
+
+  it('reports nothing to the parent of a caller-delivery child', async () => {
+    const script: Script = []
+    const { parent } = await setupWalled(script, { mode: 'read-only', preset: 'read-only' })
+    const blocked = join(workspace, 'caller-blocked.txt')
+    script.push(
+      toolCallResponse('write', 'write', {
+        file_path: blocked,
+        content: 'escaped',
+        sandbox_permissions: 'workspace-write',
+        justification: 'test escalation from a caller-delivery child',
+      }),
+      textResponse('child done'),
+    )
+
+    const run = await startPreparedActivation(spawnRequest(parent), {}, 'caller')
+    try {
+      await run.result
+      const child = run.localAgent
+      expect(toolResultTexts(child).join('\n'))
+        .toContain('the user rejected escalating this operation to "workspace-write"')
+
+      // The caller owns the result; the parent is owed no notice it did not ask for.
+      expect(parent.session.snapshotEvents().filter(event => event.type === 'user/message')).toEqual([])
+      expect(parent.inbox.nextStep).toEqual([])
     } finally {
       await run.dispose()
     }

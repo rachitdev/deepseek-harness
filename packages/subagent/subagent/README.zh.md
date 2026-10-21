@@ -64,6 +64,12 @@ kind: "package-reference"
 
 进程内 spawn 接受独立的 `agentPreset`；fork 与外部后端拒绝此选项。省略选择时，本地子级加入父方当前的 preset 代际。显式 id 挂载当前可用代际，即使该 id 与父方相同。通过 [`dsh-tool-subagent`](../tool-subagent/README.zh.md#selecting-a-child-preset) 配置模型可选项，并在 [preset 组装](../../preset/agent-preset-registry/README.zh.md)中配置 persona 与工具。冷恢复保留历史子级 descriptor 记录的 persona 和工具限制。
 
+### 委派的权限范围
+
+管理层委派时通过 sandbox-policy 服务捕获父级的有效 sandbox 模式，解析方式与父级自身工具调用完全一致。因此，受 preset 或部署默认值约束的父级会得到同等约束的子级，绝不会更宽。发布之前，子级日志以 `source: 'delegation'` 记录该模式为 `sandbox/mode`，并记录 `approval/policy: never` 固定策略，以及在父级拥有 Auto 或 Full access 身份时记录该身份，使子级范围仅凭其日志即可重建。从子级内部扩大范围——即升级请求——会被确定性地拒绝，而不是交由应答者决定。
+
+被拒绝的请求在管理层保留该子级期间按工具名向直接父级报告一次，因为子级无法撤销该拒绝，只有父级才能扩大任务范围：运行时以 `source` 类型为 `subagent-delegation` 的 `user/message` 投递通知，指明子级与工具。空闲父级将其作为排队轮次接收，繁忙父级则通过 Steer 接收。其他审批策略下的拒绝属于该策略的应答者，不会产生此通知；以 `delivery: 'caller'` 启动的子级与结算通知一样，改为向调用方报告；只有为该子级写入固定策略的管理层才会据此报告——记录会跟踪每次观察到的策略切换，并在该子级被释放或管理层 drain 时退场。若记录在某个驻留结束时既无归因也无已报告工具，它随该驻留一同退场，因此本进程只是恢复过的子级不会留下记录；而带有其一者会保留，即便该次恢复的投递从未准入，重试该恢复仍能识别已报告过的工具。释放之后的恢复起初没有归因，直到来自委派的策略事件再次确立固定策略。
+
 ### 消息、中断与发现
 
 每个确切在线 Agent 都可以对直接可继续 child 使用 `sendMessage()`；驻留的可继续 child 还可以对自己的直接 parent 使用它。正在工作的目标通过 Steer 在最近 step 接收 Agent 消息；空闲目标启动轮次，且只有直接 child 可以冷恢复。parent 也可以随时中断正在运行的后代或列举自己的子级。浏览器发出的继续执行 prompt 会独立选择 Queue 或 Steer，并且可以携带图片部分：Host 先通过附件存储完成整批图片的准入与持久化，子级 inbox 才接受这条消息；当子级声明的模型不接受图片输入时拒绝投递。 直接子级发现读取 parent 自有的 `subagentCatalog` projection。`listChildren(parentSessionId, signal?)` 持有一次优先实时来源的 Session 观察，异步返回目录，不读取子级日志。它转发取消信号，并在物化后释放观察。物化以 O(D) 时间保留 D 条事实的父日志事件顺序。外部条目是叶节点，不需要观察子 Session。后代发现按父事件顺序递归读取子级目录，每个可达 Session 观察一次。无法读取目录的分支会被跳过，并返回诊断；两条路径都不加载或恢复子级 Agent。
@@ -96,7 +102,7 @@ kind: "package-reference"
 | [`src/index.ts`](src/index.ts) | 服务入口：提供方注册表、启动与继续 API、生命周期事件 |
 | [`src/manager.ts`](src/manager.ts) | 统一管理启动、消息准入、冷恢复、父子所有权、结算与释放 |
 | [`src/activation.ts`](src/activation.ts) | 执行期记录、容量槽、子级锁与本地输出捕获 |
-| [`src/continuation-messages.ts`](src/continuation-messages.ts) | 相邻 Agent 消息、返回指引与结算通知 |
+| [`src/continuation-messages.ts`](src/continuation-messages.ts) | 相邻 Agent 消息、返回指引、结算通知与委派拒绝通知 |
 | [`src/internal.ts`](src/internal.ts) | Host 专用 Queue 与 Steer 适配器，以及标准相邻 Agent 消息标记 |
 | [`src/structured.ts`](src/structured.ts) | Activation 局部结构化捕获与保护 |
 | [`src/types.ts`](src/types.ts) | 公开的请求、结果与提供方约定 |
@@ -174,6 +180,20 @@ kind: "package-reference"
 
 在父级中仅追加：通知位于其可复用请求前缀之后。到达空闲父级会启动一次独立的模型请求，到达繁忙父级则不会。
 
+### 委派拒绝通知
+
+#### 模型看到什么
+
+父级投递的被委派子级，其直接父级会为每个被委派固定策略拒绝的工具操作收到一条运行时通知。该通知指明子级与工具，说明子级的权限范围在启动时已固定、且该范围内审批请求被禁用，并告知父级发送无需更宽访问的任务，或自行完成该工作。由子级自身策略应答者做出的拒绝不会以此方式报告。
+
+#### Token 影响
+
+管理层保留该子级期间，每个被拒绝工具名产生一条通知；子级重复尝试同一工具不会产生更多通知，而被释放后再次恢复的子级可能再报告一次。从未发起请求的子级不增加任何内容。
+
+#### KV Cache 影响
+
+在父级中仅追加：通知扩展已有请求前缀。到达空闲父级会启动一次独立的模型请求，到达繁忙父级则不会。
+
 ### 子级委派范围声明
 
 #### 模型看到什么
@@ -210,6 +230,7 @@ You are a delegated subagent: your permission scope was fixed when you were star
 - **驻留仅限进程内**——Activation inbox 与所有权图不会在两个 harness 进程之间协调；对单个持久化存储的并发访问需要持久化邮箱与跨进程租约协议。
 - **不回放已接受但未记录的消息**——崩溃可能丢失从未写入子会话日志、已被接受的提示词；丢失的消息不会自动回放。
 - **没有持久化 parent mailbox**——child 到 parent 的消息要求驻留的可继续 child 与在线直接 parent，提供的是接受标识，不保证恰好一次投递。
+- **委派通知仅限进程内**——已报告工具记忆与委派固定策略归因位于所属 manager 内，从不写入 Session 日志，并在该 manager 释放子级或 drain 时退场；若一条记录既无归因也无已报告工具，则随留下它的驻留一同退场，因此其规模受仍持有上述两项事实之一的子级数量限制。新进程、或被释放后再次恢复的子级会再报告一次被拒绝的工具，且进程未创建的子级起初没有归因，其拒绝不会产生通知，直到观察到来自委派的策略事件。
 - **生命周期事件只供观察**——影响运行的 `subagent/end` 延续或决策接口仍需等待具体消费方。
 
 <a id="dev-note"></a>

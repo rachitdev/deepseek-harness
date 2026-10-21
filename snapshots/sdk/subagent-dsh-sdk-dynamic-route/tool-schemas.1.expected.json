@@ -28,8 +28,9 @@
           },
           "sandbox_permissions": {
             "type": "string",
-            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact command the sandbox just denied; the retry asks the user for approval.",
+            "description": "Sandbox mode for this one command. A narrower mode, including read-only, confines the command without approval. A wider mode is a one-shot retry of the exact command the sandbox just denied; the retry asks the user for approval.",
             "enum": [
+              "read-only",
               "workspace-write",
               "danger-full-access"
             ]
@@ -89,8 +90,9 @@
           },
           "sandbox_permissions": {
             "type": "string",
-            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "description": "Sandbox mode for this one operation. A narrower mode, including read-only, confines the operation without approval. A wider mode is a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
             "enum": [
+              "read-only",
               "workspace-write",
               "danger-full-access"
             ]
@@ -613,8 +615,9 @@
           },
           "sandbox_permissions": {
             "type": "string",
-            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "description": "Sandbox mode for this one operation. A narrower mode, including read-only, confines the operation without approval. A wider mode is a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
             "enum": [
+              "read-only",
               "workspace-write",
               "danger-full-access"
             ]

@@ -1,0 +1,36 @@
+{
+  "version": 2,
+  "class": "session/deepseek-fetch/deepseek-fetch",
+  "capability": "escalation",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:4e48e0ee9c1765178ce76d46dd5cf4338a5b2934c00854706041e21e907f5bbf"
+    }
+  ]
+}

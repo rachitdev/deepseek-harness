@@ -1,0 +1,30 @@
+{
+  "version": 2,
+  "class": "session/persistent-pwsh-padded-completion/persistent-pwsh-padded-completion",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "edit",
+        "exit_plan_mode",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "list_agents",
+        "pwsh",
+        "read",
+        "read_image",
+        "send_message",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:21b0e100295f1b761bc7f6fdbf9f4ba6e7dbae1c154b0a7bf24cdd206f72e418"
+    }
+  ]
+}

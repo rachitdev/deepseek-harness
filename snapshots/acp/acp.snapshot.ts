@@ -19,6 +19,7 @@ function snapshotMode(value: string | undefined): SnapshotSuiteOptions['mode'] {
     case 'replay': return 'replay'
     case 'record': return 'record'
     case 'refresh': return 'refresh'
+    case 'repin': return 'repin'
     default: throw new Error(`unknown DSH_SNAPSHOT mode: ${value}`)
   }
 }
@@ -63,19 +64,16 @@ const scenarios: Scenario[] = controllerCases.map((controller) => {
     ...(manifest.header.pin === true ? { pinsHeader: true } : {}),
     ...(manifest.header.changes === undefined ? {} : { expectedHeaderChanges: manifest.header.changes }),
     headerClass: manifest.header.class,
+    capability: manifest.capability,
     ...(systemPromptSource === undefined ? {} : { systemPromptSource }),
     ...(toolSchemasSource === undefined ? {} : { toolSchemasSource }),
     ...(manifest.platform === 'posix' ? { posixOnly: true } : {}),
     ...(manifest.platform === 'pwsh' ? { pwshOnly: true } : {}),
     ...(controller.configPath === undefined ? {} : { configPath: controller.configPath }),
-    ...manifest.permission === undefined && manifest.environment === undefined
-      ? {}
-      : {
-          env: {
-            ...manifest.environment,
-            ...(manifest.permission === undefined ? {} : { DSH_PERMISSION_MODE: manifest.permission }),
-          },
-        },
+    env: {
+      ...manifest.environment,
+      DSH_PERMISSION_MODE: manifest.sandbox,
+    },
   }
 })
 
@@ -89,4 +87,5 @@ defineAcpSnapshotSuite({
   snapshotsDir: corpusDir,
   scenarios,
   mode: snapshotMode(process.env.DSH_SNAPSHOT),
+  catalogPartsDir: process.env.DSH_SNAPSHOT_CATALOG_PARTS,
 })

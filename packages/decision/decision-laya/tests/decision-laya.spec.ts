@@ -154,8 +154,9 @@ describe('fromLayaAnswer', () => {
   })
 
   it('rejects unknown answer types', () => {
-    expect(() => fromLayaAnswer('bad', { type: 'unknown' } as unknown as Parameters<typeof fromLayaAnswer>[1]))
-      .toThrow(DecisionError)
+    const unknownAnswer = { type: 'unknown' } as const
+    // @ts-expect-error -- the endpoint's JSON can carry an answer type the wire interface does not declare.
+    expect(() => fromLayaAnswer('bad', unknownAnswer)).toThrow(DecisionError)
   })
 })
 

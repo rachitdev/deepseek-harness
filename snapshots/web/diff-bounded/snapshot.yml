@@ -5,3 +5,5 @@ composition: default
 recording: authored
 header:
   class: default
+capability: unconfined
+permission: danger-full-access

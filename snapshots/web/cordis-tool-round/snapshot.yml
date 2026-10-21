@@ -9,3 +9,5 @@ sessionFormat:
 header:
   class: web-cordis
   pin: true
+capability: escalation
+permission: workspace-write

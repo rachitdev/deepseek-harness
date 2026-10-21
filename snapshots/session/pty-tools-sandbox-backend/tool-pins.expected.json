@@ -1,0 +1,43 @@
+{
+  "version": 2,
+  "class": "session/pty-sandbox-backend/pty-sandbox-backend",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "terminal_close",
+        "terminal_list",
+        "terminal_open",
+        "terminal_read",
+        "terminal_send",
+        "terminal_signal",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:f63b6f626d37a13d01f5b94bb2e23d7730a529ab7c595da25070eba7e4fdf1ac"
+    }
+  ]
+}

@@ -3,7 +3,8 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import type { DecisionAnswer, DecisionProvider, DecisionRequest, DecisionResult } from '@deepseek-ai/dsh-decision'
-import { createUserMessage, LlmAdapter, type GenerateOptions, type StreamChunk, type UserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { recallSource } from './recall-source.ts'
 
 /** Recall text the fixture memory plugin appends to every step. */
 export const FIXTURE_RECALL = [
@@ -53,7 +54,13 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Registers the scripted adapter, decision provider, and an OpenViking-shaped recall source. */
+/**
+ * Registers the scripted adapter, decision provider, and an OpenViking-shaped recall source.
+ *
+ * The recall source appends after its own `next()` and registers without `prepend`, so a
+ * composition that mounts it after decision-consumers still runs it inside the filter's single
+ * prepended listener ([recall-filter](../../../src/recall-filter.ts)).
+ */
 export default class RecallFixtureRuntime extends Service {
   static inject = ['llm', 'decision', 'agents']
   readonly adapter = new FixtureAdapter()
@@ -70,9 +77,9 @@ export default class RecallFixtureRuntime extends Service {
         ...decision,
         messages: [...decision.messages, createUserMessage({
           content: [{ type: 'text', text: FIXTURE_RECALL }],
-          source: { kind: 'plugin:openviking-memory', plugin: 'openviking-memory', form: 'recall' } as unknown as UserMessage['source'],
+          source: recallSource(),
         })],
       }
-    }, { prepend: true })
+    })
   }
 }

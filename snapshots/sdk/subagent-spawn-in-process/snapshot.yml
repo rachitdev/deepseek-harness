@@ -2,6 +2,8 @@ version: 1
 scenario: subagent-spawn-in-process
 profile: sdk
 composition: sdk-default
+capability: escalation
 recording: authored
 header:
   class: sdk-default
+  childToolSchemas: [1]

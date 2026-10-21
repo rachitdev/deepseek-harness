@@ -84,7 +84,7 @@ kind: "package-reference"
 
 已实体化的 `stat` 与 `list` 快照在转换后的逻辑 `header` 之外，通过 `formatStatus` 保留格式 catalog 的头部分类。只读准备不会改变所选历史版本；发布后继之后，状态才变为 `current`。尚未实体化的待定 Session 省略 `formatStatus`。
 
-`open(id, 'read'|'write')` 选择最高规范 generation。当前格式输入走普通快速路径。对于历史输入，只读 open 会单遍解码并迁移源、校验当前逻辑结果，然后在不发布后继的情况下返回。写 open 会在可用时复用按 revision 为键的 preparation，否则执行同一套 preparation，再按有界分片编码同目录临时文件、在 Worker Thread 中校验、复查源修订，并在返回前以不覆盖方式发布当前后继。源保持逐字节不变。如果源在 preparation 后发生变化，该次写 open 会失败，已经返回给读方的逻辑历史不会被替换；后续写 open 会针对新的 revision 重新执行 preparation。后端在 memo 化前冻结已解码的 event graph，并在此时将其标记为 `shared-frozen`；每个嵌套对象和数组都会冻结，句柄读取和 slice 即使为空也保留该状态。只有尚未实体化的 pending 空日志报告 `detached`。`stat(id)` 与 `list()` 只选择并转换最高 generation 的 header，不读取事件行，也不启动迁移；快照携带所选文件的 `sizeBytes` 与尽力而为的修订号。当前格式修订号标识该文件；历史格式修订号还包含持久化根目录中所选文件的指纹，因此子日志变化会使缓存的逻辑事件失效。指纹只读取文件系统元数据；无关变化也会保守地使历史修订号失效。一次 `list()` 为其历史条目共用一个全库指纹。选择 `compression: 'none'` 后，日志是外部读取方可直接消费的换行分隔文本；压缩默认值必须经后端读取。
+`open(id, 'read'|'write')` 选择最高规范 generation。当前格式输入走普通快速路径。对于历史输入，只读 open 会单遍解码并迁移源、校验当前逻辑结果，然后在不发布后继的情况下返回。写 open 会在可用时复用按 revision 为键的 preparation，否则执行同一套 preparation，再按有界分片编码同目录临时文件、在 Worker Thread 中校验、复查源修订，并在返回前以不覆盖方式发布当前后继。源保持逐字节不变。如果源在 preparation 后发生变化，该次写 open 会失败，已经返回给读方的逻辑历史不会被替换；后续写 open 会针对新的 revision 重新执行 preparation。后端在 memo 化前冻结已解码的 event graph，并在此时将其标记为 `shared-frozen`；每个嵌套对象和数组都会冻结，句柄读取和 slice 即使为空也保留该状态。只有尚未实体化的 pending 空日志报告 `detached`。`stat(id)` 与 `list()` 只选择并转换最高 generation 的 header，不读取事件行，也不启动迁移；快照携带所选文件的 `sizeBytes` 与尽力而为的修订号。当前格式修订号标识该文件；历史格式修订号还包含持久化根目录中所选文件的指纹，因此子日志变化会使缓存的逻辑事件失效。指纹只读取文件系统元数据；无关变化也会保守地使历史修订号失效。一次 `list()` 为其历史条目共用一个全库指纹。选择 `compression: 'none'` 后，日志是外部读取方可直接消费的换行分隔文本。在句柄之外检查存储日志字节的代码，无论哪种编码，都使用导出的 `readSessionLog(bytes)`：它解码每个拼接的 Zstandard 帧（可跳过帧会跳过其内容而不解压，其魔术数字不会被视为损坏），返回 header 在先的记录，并按格式目录校验 header 版本（[封装约定](../../../docs/session-format-status.zh.md#stored-log-framing)）。结构性损坏以 `@deepseek-ai/dsh-session-persistence` 的 `SessionLogCorruptError` 拒绝，其 `kind` 指明失败的检查（`torn-frame`、`invalid-json`、`not-object`、`no-header`、`prefix-short`、`unrecognized-container`、`invalid-container`），`damage` 携带字节偏移或从 1 开始的行号，调用方无需匹配消息文本即可区分损坏日志。`invalid-container` 表示某个帧的魔术数字、帧头或块结构在 `damage.offset` 处违反 Zstandard；它适用于容器中的任意位置，而不只是第一个字节。未终止的最后一行无法解析时——这是进行中的写入，而非已提交前缀内的损坏——`damage.trailing` 也会置位。`readSessionLogPrefix(bytes, plaintextBytes)` 对已证实的明文前缀套用同一套封装，只扫描覆盖该前缀的帧，并在请求长度为零时返回空缓冲区，因此中断的追加，以及前缀之后的损坏，都不会让不需要这些字节的比较失败。本构建无法解释的版本仍以 `SessionFormatUnsupportedError` 拒绝：损坏与不支持的版本是两种不同结果。
 
 校验只有在 Worker 自然以退出码 0 结束后，才接受其成功响应。并发配额一直保留到该次退出；取消或 Worker 错误会先终止并等待 Worker 退出，再使校验失败。
 
@@ -118,6 +118,8 @@ kind: "package-reference"
 | [`src/storage.ts`](src/storage.ts) | JSONL 句柄、已路由实时事件缓冲、进程内写入者记账、监听器、teardown |
 | [`src/format.ts`](src/format.ts) | 日志路径派生、header 编码与当前记录扫描 |
 | [`src/generation.ts`](src/generation.ts) | 单遍历史还原、有界 stage 编码、源 revision 检查与排他后继发布 |
+| [`src/reader.ts`](src/reader.ts) | 整份日志的 `readSessionLog` 解码，以及发布检查所用的 JSONL 明文前缀读取 |
+| [`../session-persistence/src/errors.ts`](../session-persistence/src/errors.ts) | 各后端共用的 `SessionLogCorruptError` / `SessionFormatUnsupportedError` 拒绝类型 |
 | [`src/migration-verifier.ts`](src/migration-verifier.ts) | stage 与竞争 generation 校验的 Worker 生命周期 |
 | [`src/zstd.ts`](src/zstd.ts) | Zstandard 帧压缩、解码与帧扫描 |
 | [`src/win32.ts`](src/win32.ts) | Windows write-through 发布与目录创建 |

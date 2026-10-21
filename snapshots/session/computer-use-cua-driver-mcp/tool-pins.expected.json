@@ -1,0 +1,42 @@
+{
+  "version": 2,
+  "class": "session/computer-use-cua-driver-mcp/computer-use-cua-driver-mcp",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "list_mcp_resource_templates",
+        "list_mcp_resources",
+        "mcp__cua-driver-mcp__disconnect",
+        "mcp__cua-driver-mcp__screenshot",
+        "read",
+        "read_image",
+        "read_mcp_resource",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:b340af50f73731731ffd8b74760ce33958e9ee713314d9d677a9fdc9df66f4ca"
+    }
+  ]
+}

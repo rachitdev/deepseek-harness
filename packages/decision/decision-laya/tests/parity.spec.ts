@@ -172,11 +172,13 @@ describe('JEV and Laya: Question Translation Parity', () => {
   })
 
   it('both refuse unhandled question types with DECISION_PROVIDER_ERROR', () => {
-    const invalidQ = { type: 'custom_type', instructions: 'Invalid' } as unknown as DecisionQuestion
+    const invalidQ = { type: 'custom_type', instructions: 'Invalid' } as const
 
+    // @ts-expect-error -- a question built from runtime data can carry a type the union does not declare.
     expect(() => toJevQuestion(invalidQ)).toThrow(
       expect.objectContaining({ code: 'DECISION_PROVIDER_ERROR' }) as Error,
     )
+    // @ts-expect-error -- a question built from runtime data can carry a type the union does not declare.
     expect(() => toLayaQuestion(invalidQ)).toThrow(
       expect.objectContaining({ code: 'DECISION_PROVIDER_ERROR' }) as Error,
     )

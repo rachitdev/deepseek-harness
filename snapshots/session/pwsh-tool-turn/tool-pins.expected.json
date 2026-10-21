@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "class": "session/pwsh/pwsh",
+  "capability": "escalation",
+  "sets": [
+    {
+      "tools": [
+        "edit",
+        "exit_plan_mode",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "pwsh",
+        "read",
+        "read_image",
+        "send_message",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:5f9e1c12a0692e1a605c3d4abcb8e5517114639e05b9bbc99a4d0ce1be6a3e9f"
+    }
+  ]
+}

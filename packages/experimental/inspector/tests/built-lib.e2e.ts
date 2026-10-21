@@ -65,7 +65,7 @@ describe.skipIf(!built)('experimental Inspector built artifact', () => {
           socket.once('error', reject)
         })
         const response = new Promise((resolve, reject) => {
-          const timer = setTimeout(() => reject(new Error('CDP response timeout')), 5000)
+          const timer = setTimeout(() => reject(new Error('CDP response timeout')), ${String(test.task.timeout)})
           socket.on('message', data => {
             const message = JSON.parse(Buffer.from(data).toString('utf8'))
             if (message.id !== 1) return

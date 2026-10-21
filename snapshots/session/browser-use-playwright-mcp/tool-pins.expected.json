@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "class": "session/browser-use-playwright-mcp/browser-use-playwright-mcp",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "list_mcp_resource_templates",
+        "list_mcp_resources",
+        "mcp__playwright-mcp__browser_take_screenshot",
+        "read",
+        "read_image",
+        "read_mcp_resource",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:24e1c8e1993fbf04d095eab2a43d19934b81318cc95b41afd7a9c2115e52419a"
+    }
+  ]
+}

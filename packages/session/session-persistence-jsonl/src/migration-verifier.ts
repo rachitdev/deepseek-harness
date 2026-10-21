@@ -101,7 +101,7 @@ function workerSpawn(request: VerificationRequest): { readonly entry: string | U
  * @param compression - configured physical encoding.
  * @param expectedId - Session id expected in the decoded header.
  * @param expectedEventCount - exact logical event count expected after decoding.
- * @param expectedPrefix - verified physical prefix; an append tail may be present and is not validated.
+ * @param expectedPrefix - JSONL plaintext prefix the migration wrote; an appended batch may follow and is not validated.
  * @param signal - optional cancellation for scheduler wait and Worker execution.
  * @returns the worker's physical identity and digest after its natural zero exit.
  */

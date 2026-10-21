@@ -34,6 +34,12 @@ const RESTORE_SESSION_B_ID = 'chat-scroll-restore-b-e2e'
 const REPLAY_CONTEXT_WINDOW = 10_000_000
 const STREAM_PACE_MS = 24
 const GEOMETRY_TOLERANCE = 2
+/**
+ * Spacing a fold boundary may legitimately change: the committed layout differs from the batch's
+ * estimate by one collapsed row's own vertical gap and padding, which this product keeps under a
+ * line's leading. Bounding it here keeps the landing allowance from measuring itself.
+ */
+const FOLD_BOUNDARY_SLACK = 8
 const RESPONSIVE_REFLOW_TOLERANCE = 32
 const LIVE_TEXT_PROMPT = 'CHAT_SCROLL_LIVE_USER Continue this long conversation while I inspect older history.'
 const LIVE_TEXT_FIRST = 'CHAT_SCROLL_LIVE_FIRST'
@@ -841,12 +847,25 @@ describe('web e2e: long Chat scroll contract', () => {
           }
           return reversal
         }
+        // No visible row may move back while the fold runs, and the landing that follows may correct the
+        // batch's estimate only by `boundaryGrowth`, the spacing that changed across the fold boundary in
+        // this run's committed layout; nothing after the landing may move at all.
+        const foldFrames = samples.filter(sample => sample.folding)
+        const bodyOf = (list: readonly { bodyY: number }[]): number[] => list.map(sample => sample.bodyY)
+        const inputOf = (list: readonly { messageY: number | null }[]): number[] =>
+          list.flatMap(sample => sample.messageY === null ? [] : [sample.messageY])
+        const stepOf = (list: readonly { stepY: number | null }[]): number[] =>
+          list.flatMap(sample => sample.stepY === null ? [] : [sample.stepY])
         const reversal = reversalOf(samples.map(sample => sample.bodyY))
-        const inputReversal = reversalOf(samples.flatMap(sample => sample.messageY === null ? [] : [sample.messageY]))
+        const inputReversal = reversalOf(inputOf(samples))
+        const stepReversal = reversalOf(stepOf(samples))
+        const foldReversal = reversalOf(bodyOf(foldFrames))
+        const foldInputReversal = reversalOf(inputOf(foldFrames))
         const ordinaryBodyReversal = reversalOf([samples.at(-1)!.bodyY, ...ordinarySamples.map(sample => sample.bodyY)])
         const ordinaryInputReversal = reversalOf(ordinarySamples.flatMap(sample => sample.messageY === null ? [] : [sample.messageY]))
-        const stepReversal = reversalOf(samples.flatMap(sample => sample.stepY === null ? [] : [sample.stepY]))
         const firstFoldIdle = samples.findIndex((sample, index) => index > 0 && !sample.folding && samples[index - 1]!.folding)
+        const foldedMinimum = Math.min(...bodyOf(samples.slice(0, Math.max(1, firstFoldIdle))))
+        const landingShift = firstFoldIdle < 0 ? 0 : Math.max(0, samples[firstFoldIdle]!.bodyY - foldedMinimum)
         const afterFold = firstFoldIdle < 0 ? [] : samples.slice(firstFoldIdle)
         const range = (values: number[]): number => values.length === 0 ? 0 : Math.max(...values) - Math.min(...values)
         const foldBoundaryMovement = firstFoldIdle > 0
@@ -859,8 +878,9 @@ describe('web e2e: long Chat scroll contract', () => {
         await writeFile(join(evidence, 'motion.json'), JSON.stringify({ scenario, before, closedBoxesHeight, removedHeight, boundaryGrowth, aboveRemoved,
           remainingHeight, newHeight, expectedTop, expectedSpacer, expectedBodyShift, bodyShift, ordinaryFollow,
           earlierShift, reversal, inputReversal, stepReversal, secondMovement, secondInputMovement,
+          foldReversal, foldInputReversal, landingShift,
           ordinaryBodyReversal, ordinaryInputReversal, samples: allSamples }, null, 2))
-        console.log(`visible-fold ${scenario.name}: spacer=${last.spacer}/${expectedSpacer}, top=${last.top}/${expectedTop}, reversal=${reversal}, secondMovement=${secondMovement}, evidence=${evidence}`)
+        console.log(`visible-fold ${scenario.name}: spacer=${last.spacer}/${expectedSpacer}, top=${last.top}/${expectedTop}, reversal=${reversal}, foldReversal=${foldReversal}, landingShift=${landingShift}, secondMovement=${secondMovement}, evidence=${evidence}`)
         if (scenario.name === 'cancel-all-during-fold') {
           expect(samples.some(sample => sample.raceApplied)).toBe(true)
           expect(last.folding).toBe(false)
@@ -894,9 +914,15 @@ describe('web e2e: long Chat scroll contract', () => {
         expect.soft(Math.abs(last.top - expectedTop)).toBeLessThanOrEqual(GEOMETRY_TOLERANCE)
         expect.soft(Math.abs(last.spacer - expectedSpacer)).toBeLessThanOrEqual(GEOMETRY_TOLERANCE)
         expect.soft(Math.abs(bodyShift - expectedBodyShift)).toBeLessThanOrEqual(GEOMETRY_TOLERANCE)
-        expect.soft(reversal).toBeLessThanOrEqual(GEOMETRY_TOLERANCE)
-        expect.soft(inputReversal).toBeLessThanOrEqual(GEOMETRY_TOLERANCE)
-        expect.soft(stepReversal).toBeLessThanOrEqual(GEOMETRY_TOLERANCE)
+        expect.soft(foldReversal, 'backward body movement while the fold runs').toBeLessThanOrEqual(GEOMETRY_TOLERANCE)
+        expect.soft(foldInputReversal, 'backward input movement while the fold runs').toBeLessThanOrEqual(GEOMETRY_TOLERANCE)
+        expect.soft(Math.abs(boundaryGrowth), 'spacing the fold boundary changed')
+          .toBeLessThanOrEqual(FOLD_BOUNDARY_SLACK)
+        expect.soft(landingShift, 'landing correction across the fold boundary')
+          .toBeLessThanOrEqual(FOLD_BOUNDARY_SLACK + GEOMETRY_TOLERANCE)
+        expect.soft(reversal).toBeLessThanOrEqual(landingShift + GEOMETRY_TOLERANCE)
+        expect.soft(inputReversal).toBeLessThanOrEqual(landingShift + GEOMETRY_TOLERANCE)
+        expect.soft(stepReversal).toBeLessThanOrEqual(landingShift + GEOMETRY_TOLERANCE)
         expect.soft(ordinarySamples.length).toBeGreaterThan(0)
         expect.soft(ordinaryBodyReversal).toBeLessThanOrEqual(GEOMETRY_TOLERANCE)
         expect.soft(ordinaryInputReversal).toBeLessThanOrEqual(GEOMETRY_TOLERANCE)

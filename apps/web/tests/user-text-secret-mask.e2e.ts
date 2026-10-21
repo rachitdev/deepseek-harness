@@ -44,6 +44,32 @@ describe('web e2e: credential mask in user text', () => {
     await scaffold?.close()
   })
 
+  /**
+ * Assert each box matches within one device pixel.
+ *
+ * Bounding boxes are fractional CSS pixels and engines round sub-pixel layout per frame, so a
+ * comparison has to allow the rounding unit: one physical pixel, which is what a viewer can
+ * actually resolve. A CSS-pixel bound would tighten or loosen with the device scale factor.
+ * @param actual - boxes measured after the change under test.
+ * @param expected - boxes measured before it.
+ * @param devicePixelRatio - the page's device scale factor for the comparison.
+ */
+  function expectSameBoxes(actual: Record<string, { x: number; y: number; width: number; height: number } | null>,
+    expected: Record<string, { x: number; y: number; width: number; height: number } | null>,
+    devicePixelRatio: number): void {
+    const tolerance = 1 / devicePixelRatio
+    for (const [name, box] of Object.entries(expected)) {
+      const measured = actual[name] ?? null
+      if (box === null || measured === null) {
+        expect(measured, name).toBe(box)
+        continue
+      }
+      for (const metric of ['x', 'y', 'width', 'height'] as const) {
+        expect(Math.abs(measured[metric] - box[metric]), `${name}.${metric}`).toBeLessThanOrEqual(tolerance)
+      }
+    }
+  }
+
   it('masks the credential in the bubble and reveals it from its own control', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-user-text-secret-mask'))
     const text = page.locator('[class*="bubble"]', { has: page.locator('[data-secret]') })
@@ -64,7 +90,8 @@ describe('web e2e: credential mask in user text', () => {
     await page.getByRole('button', { name: 'Show secret', exact: true }).click()
     await expect.poll(() => text.textContent()).toBe(PROMPT)
     // The monospace run keeps one mask character per original character, so revealing does not move the line.
-    expect({ run: await run.boundingBox(), bubble: await text.boundingBox() }).toEqual(masked)
+    expectSameBoxes({ run: await run.boundingBox(), bubble: await text.boundingBox() }, masked,
+      await page.evaluate(() => window.devicePixelRatio))
     await page.getByRole('button', { name: 'Hide secret', exact: true }).click()
     await expect.poll(() => text.textContent()).not.toContain(KEY)
     expect(tripwire.pageErrors).toEqual([])

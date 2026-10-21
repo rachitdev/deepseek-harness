@@ -129,7 +129,7 @@ interface ResolvedSubagentStartRequest extends SubagentStartRequest {
 
 Spawn alone supports an independent `agentPreset`; omission and fork inherit the parent's active composition. The [child preset rules](../../packages/subagent/subagent/README.md#restoring-child-composition) define explicit selection, event ordering, and historical restoration.
 
-A local child has a durable Session and at most one live activation. The manager reserves identity and capacity, prepares the child through its backend, and owns input admission, cold resume, and child-first disposal. The activation result settles after resource release and completion notification. Disposal reports cleanup failure separately without replacing a captured result. Structured capture closes input for that activation; a later cold resume does not inherit the output schema.
+A local child has a durable Session and at most one live activation. The manager reserves identity and capacity, prepares the child through its backend, and owns input admission, cold resume, and child-first disposal. The activation result settles after resource release and completion notification. Disposal reports cleanup failure separately without replacing a captured result. Structured capture closes input for that activation; a later cold resume does not inherit the output schema. Before publication the manager seeds the child's log with the sandbox mode the parent resolves at that moment — a preset's confinement and the deployment default included — and with the `'never'` approval pin, so a child is never wider than its parent and its scope is reconstructable from its own log.
 
 ```ts type-equiv
 /**
@@ -173,7 +173,7 @@ interface ContinuableCreateSpec {
 
 ## Messages and interruption
 
-sendMessage authorizes the exact live sender and permits only adjacent local agents. Running children receive steering input; absent continuable children resume from persistence. External executions reject follow-ups. Both local and external executions automatically report their final text, structured result, diagnostic, and status in the parent settlement notice. Local children can also send messages through send_message. caller delivery suppresses settlement notices. drainDescendants and drainChildren await owned work teardown for local and external activations.
+sendMessage authorizes the exact live sender and permits only adjacent local agents. Running children receive steering input; absent continuable children resume from persistence. External executions reject follow-ups. Both local and external executions automatically report their final text, structured result, diagnostic, and status in the parent settlement notice. Local children can also send messages through send_message. caller delivery suppresses settlement notices. An ask that the delegation pin rejects is reported, for a parent-delivery child, as a `user/message` whose source kind is `subagent-delegation` — once per tool while the manager keeps the child, and only for a rejection that pin caused and this manager pinned. drainDescendants and drainChildren await owned work teardown for local and external activations.
 
 ```ts type-equiv
 /** Durable attribution for one model-authored message between Agents. */
@@ -202,6 +202,27 @@ interface SubagentSettledMessageSource {
   readonly summary: string
   /** Session id of the child that settled. */
   readonly senderSessionId: SessionId
+}
+```
+
+```ts type-equiv
+/**
+ * Durable attribution for the runtime's own account of a delegated child
+ * having an approval ask rejected automatically. A third kind, not
+ * {@link AgentMessageSource} (the child did not choose these words) and not
+ * {@link SubagentSettledMessageSource} (the child has not ended): it reports
+ * one refusal inside the scope the delegation fixed.
+ */
+interface SubagentDelegationNoticeSource {
+  readonly kind: 'subagent-delegation'
+  /** A runtime account shown without expanding the row (`notice` context form). */
+  readonly form: 'notice'
+  /** One-line account of the refused ask. */
+  readonly summary: string
+  /** Session id of the delegated child whose ask was refused. */
+  readonly childSessionId: SessionId
+  /** Tool whose operation the child asked to run. */
+  readonly toolName: string
 }
 ```
 

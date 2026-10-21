@@ -2,6 +2,7 @@ version: 1
 scenario: serial-created
 profile: sdk
 composition: sdk-serial-created
+capability: escalation
 recording: authored
 header:
   class: sdk-serial-created

@@ -17,6 +17,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   assertPersistedSessionVersion,
+  assertCapabilityApproval,
+  assertPinnedHeader,
   assertSessionFixtureVersion,
   captureExpectedWorkspaceSnapshot,
   captureWorkspaceSnapshot,
@@ -29,6 +31,8 @@ import {
   normalizedToolSchemas,
   parseSnapshotManifest,
   parseToolSchemasSnapshot,
+  readHeaderPin,
+  recordedApprovalPolicy,
   redactSessionSnapshotIds,
   refreshFixtureReplacements,
   reconcileCatalogCreationTimes,
@@ -44,10 +48,12 @@ import {
   stabilizeFixtureMessageIds,
   stabilizeRefreshLog,
   tokenizeSessionFixtureCwd,
+  writeHeaderPin,
   writesCurrentSessionFixtures,
   materializeProfilePatch,
   formatSystemPromptSnapshot,
   formatToolSchemasSnapshot,
+  headerWithoutTools,
   latestPersistedSessionPaths,
   type HarvestedLog,
   type NormalizeContext,
@@ -65,6 +71,12 @@ import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import { deriveReplayScript, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 
 const corpusRoot = fileURLToPath(new URL('../', import.meta.url))
+/** This suite's directory, which namespaces the classes its pins declare. */
+const snapshotsRoot = fileURLToPath(new URL('./', import.meta.url))
+/** The generated catalog every header pin points at. */
+const toolCatalogPath = join(corpusRoot, '..', 'docs', 'tool-catalog.json')
+/** Directory where a catalog-regeneration run drops one fragment per header class. */
+const catalogPartsDir = process.env.DSH_SNAPSHOT_CATALOG_PARTS
 
 const MINIMAL_SYSTEM_PROMPT = 'You are the environment-selected minimal software engineer.'
 const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
@@ -627,7 +639,8 @@ async function runScenario(scenario: CorpusScenario): Promise<{
   if (actions[0] !== undefined) await prepareTurnReplay(actions[0].turn)
   const env: Record<string, string> = {
     ...Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== undefined)) as Record<string, string>,
-    DSH_SNAPSHOT: mode,
+    DSH_SNAPSHOT: mode === 'record' ? 'record' : 'replay',
+    DSH_PERMISSION_MODE: scenario.manifest.sandbox,
     DSH_SNAPSHOT_PROVIDER: route.provider,
     DSH_SNAPSHOT_MODEL: route.model,
     DSH_TELEMETRY_DISABLED: '1',
@@ -814,10 +827,12 @@ async function writeHeaderSidecars(
         formatSystemPromptSnapshot(prompts[0] as string, prompts.slice(1)),
       )
     }
-    if (scenario.manifest.header.toolSchemasSource === undefined) {
-      await writeFile(
-        join(scenario.dir, 'tool-schemas.expected.json'),
-        formatToolSchemasSnapshot(schemas[0] as unknown[], schemas.slice(1)),
+    {
+      await writeHeaderPin(
+        { snapshotsDir: snapshotsRoot, ownerDir: scenario.dir, headerClass: scenario.manifest.header.class ?? 'default' },
+        scenario.manifest.capability ?? 'unconfined',
+        schemas,
+        catalogPartsDir,
       )
     }
   }
@@ -859,12 +874,14 @@ async function verifyHeaders(
   const promptOwner = sourceScenario(pin, pin.manifest.header.systemPromptSource)
   const schemaOwner = sourceScenario(pin, pin.manifest.header.toolSchemasSource)
   const prompt = await readFile(join(promptOwner.dir, 'system-prompt.expected.md'), 'utf8')
-  const schemas = parseToolSchemasSnapshot(await readFile(join(schemaOwner.dir, 'tool-schemas.expected.json'), 'utf8'))
-  const schemaSets = [schemas.initial, ...schemas.changes]
-  const reconstructed = pinned.map((header, index) => restorePinnedToolSchemas(
-    header,
-    schemaSets[index] as unknown[],
-  ))
+  const capability = pin.manifest.capability ?? 'unconfined'
+  const { pins, catalog } = await readHeaderPin(pin.dir, toolCatalogPath)
+  // The pin names its own catalog class, so a class borrowed from another suite
+  // keeps that suite's namespace.
+  const catalogKey = pins.class
+  expect(pins.class.split('/').at(-1), `${scenario.name}: pin class`).toBe(pin.manifest.header.class ?? 'default')
+  expect(pins.sets, `${scenario.name}: pin tool-pin count`).toHaveLength(pinned.length)
+  expect(pins.capability, `${scenario.name}: pin capability`).toBe(capability)
 
   const childPrompts = new Map<number, string>()
   const childSchemas = new Map<number, unknown[][]>()
@@ -884,16 +901,24 @@ async function verifyHeaders(
       expect(prompts.length, `${scenario.name}: session ${logIndex} system/message count`)
         .toBe(1 + (logIndex === 0 ? pin.manifest.header.promptChanges ?? 0 : 0))
     }
+    // A delegated child pins its own approval policy, so only the primary
+    // session proves what the composition mounted.
+    if (logIndex === 0) {
+      assertCapabilityApproval(capability, recordedApprovalPolicy(log.content), `${scenario.name}: session ${logIndex}`)
+    }
     for (const [index, header] of headers.entries()) {
       const selectedSchemas = childSchemas.get(logIndex)?.[index]
-      const base = reconstructed[index] ?? reconstructed[0]
-      const configured = logIndex === 1 && dshSdkChildConfig !== undefined
-        ? { ...base as JsonObject, config: dshSdkChildConfig }
-        : base
-      const expected = selectedSchemas === undefined
-        ? configured
-        : { ...configured as JsonObject, tools: selectedSchemas }
-      expect(header, `${scenario.name}: session ${logIndex} header ${index + 1}`).toEqual(expected)
+      const pinnedHeader = pinned[index] ?? pinned[0]
+      const withConfig = logIndex === 1 && dshSdkChildConfig !== undefined
+        ? { ...pinnedHeader as JsonObject, config: dshSdkChildConfig }
+        : pinnedHeader as JsonObject
+      const label = `${scenario.name}: session ${logIndex} header ${index + 1}`
+      if (selectedSchemas === undefined) {
+        assertPinnedHeader(header, withConfig, { label, className: catalogKey, pins, catalog }, Math.min(index, pins.sets.length - 1))
+        continue
+      }
+      expect(headerWithoutTools(header), `${label} (except tools)`).toEqual(headerWithoutTools(withConfig))
+      expect((header as JsonObject).tools, `${label} tools`).toEqual(selectedSchemas)
     }
     if (prompts.length > 0) {
       expect(formatSystemPromptSnapshot(prompts[0] as string, prompts.slice(1)), `${scenario.name}: session ${logIndex} system prompts`)
@@ -1123,6 +1148,8 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
         expectedContents = redactSessionSnapshotIds(stabilizeFixtureMessageIds(reconcileCatalogCreationTimes(refreshed, 'preserve-headers'), expectedContents))
       }
 
+      // A pin-refresh run rewrites the class pins and nothing else.
+      if (mode === 'repin') await writeHeaderSidecars(scenario, ordered, actualContext)
       if (writesSessionFixtures || refreshing && retained) {
         const outputFiles = ordered.map((log, index) => join(scenarioDir, retained
           ? writerSnapshotName(index)
@@ -1152,7 +1179,8 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       const actualSnapshots = normalizeSessionSnapshots(ordered.map(log => log.content), actualContext, { nativeWriterOutput: true })
       const expectedSnapshots = normalizeSessionSnapshots(expectedContents, expectedContext, { nativeWriterOutput: true })
       expect(actualSnapshots.map(records), `${scenario.name}: sessions`).toEqual(expectedSnapshots.map(records))
-      await verifyHeaders(scenario, ordered, actualContext, assertions.dshSdkChild?.agentConfig)
+      // A pin-refresh run regenerates the pins it would otherwise check.
+      if (mode !== 'repin') await verifyHeaders(scenario, ordered, actualContext, assertions.dshSdkChild?.agentConfig)
 
       // Genuine SDK protocol cases retain their secondary wire projections.
       const finalResult = results.at(-1)

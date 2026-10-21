@@ -35,7 +35,7 @@ The [voice input bundle](../voice-input-bundle/README.md) selects the executable
 <details>
 <summary>Maintainer details — click to expand</summary>
 
-Each recognition call writes the audio to an owner-only temporary directory using the file extension derived from the audio MIME type (defaulting to WAV) and parses the `transcribe_file` result from a warm local MCP client. Connect failures close the underlying transport to avoid leaking subprocesses. Cancellation closes the process and cleanup waits for closure before removing the audio file. The temporary recording is not a Session attachment or a model-facing MCP tool call. Selecting an unavailable provider fails explicitly without fallback.
+Each recognition call writes the audio to an owner-only temporary directory using the file extension derived from the audio MIME type (defaulting to WAV) and parses the `transcribe_file` result from a warm local MCP client. Connect failures close the underlying transport to avoid leaking subprocesses. Cancellation closes the process and cleanup waits for closure before removing the audio file. The temporary recording is not a Session attachment or a model-facing MCP tool call. Selecting an unavailable provider fails explicitly without fallback. The MCP client module loads with the first recognition session rather than at activation: its stdio transport is CommonJS and reads the Node `global`, which a browser Worker does not install, and a Host without the executable never reaches that path.
 
 </details>
 

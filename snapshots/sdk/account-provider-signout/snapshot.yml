@@ -2,6 +2,7 @@ version: 1
 scenario: account-provider-signout
 profile: sdk
 composition: sdk-account-provider-signout
+capability: escalation
 recording: authored
 header:
   class: sdk-account-provider-signout

@@ -64,6 +64,12 @@ At capacity, creation or cold resume rejects with `ACTIVATION_LIMIT_REACHED` (br
 
 In-process spawn accepts an independent `agentPreset`; fork and external backends reject this option. Without a selection, a local child joins the parent's current preset revision. An explicit id mounts the currently available revision, even when that id matches the parent's. Configure model choices through [`dsh-tool-subagent`](../tool-subagent/README.md#selecting-a-child-preset) and persona and tools in the [preset composition](../../preset/agent-preset-registry/README.md). Cold resume preserves persona and tool restrictions recorded in historical child descriptors.
 
+### Delegated permission scope
+
+The manager captures the parent's effective sandbox mode at delegation through the sandbox-policy service, resolved exactly as the parent's own tool calls resolve it. A parent confined by a preset or by the deployment default therefore yields a child at the same confinement, never a wider one. Before publication the child's log records that mode as `sandbox/mode` with `source: 'delegation'`, the `approval/policy: never` pin, and the parent's Auto or Full access identity when it has one, so the child's scope is reconstructable from its log alone. Widening from inside the child — an escalation request — is rejected deterministically rather than answered.
+
+A rejected ask is reported to the direct parent once per tool for as long as the manager keeps that child, because the child cannot undo the refusal and only the parent can widen the task: the runtime delivers a notice naming the child and the tool as a `user/message` whose source kind is `subagent-delegation`. An idle parent receives it as a queued turn, a busy parent through Steer. A rejection under any other approval policy belongs to that policy's answerer and produces no notice, a child started with `delivery: 'caller'` reports to its caller instead, like the settlement notice, and only the manager that pinned the child reports against it — the record tracks each observed policy switch and is retired when that child is released or the manager drains. A record that ends an epoch carrying neither an attribution nor a reported tool is retired with that epoch, so a child this process only resumed leaves nothing behind, while a record holding either survives a delivery the resume never admitted, so retrying that resume still recognises the tools already reported. A resume after a release starts unattributed until a delegation-sourced policy event establishes the pin again.
+
 ### Messaging, interrupting, and discovering
 
 Every exact live Agent can use `sendMessage()` with a direct continuable child; a resident continuable child can also use it with its direct parent. A working target receives the Agent message through Steer at its nearest step; an idle target starts a turn, and only a direct child can be cold-resumed. The parent can also interrupt a running descendant or list its children at any time. A browser continuation prompt independently selects Queue or Steer and may carry image parts: the Host admits and persists each image batch through the attachment store before the child inbox accepts the message, and refuses delivery when the child's declared model does not accept image input. Direct-child discovery reads the parent-owned `subagentCatalog` projection. `listChildren(parentSessionId, signal?)` owns a live-preferred Session observation and returns the catalog asynchronously without reading child logs. It forwards cancellation and releases the observation after materialization. Materialization preserves parent event order in O(D) time for D facts. External entries are leaves and require no child Session observation. Descendant discovery recursively reads local child catalogs in parent event order, observing each reachable Session once. It skips branches whose catalogs cannot be read and returns diagnostics for them; neither path loads or resumes a child Agent.
@@ -96,7 +102,7 @@ This section explains how the service is built and where the observable behavior
 | [`src/index.ts`](src/index.ts) | Service entry: provider registry, start and continuation API, lifecycle events |
 | [`src/manager.ts`](src/manager.ts) | Unified startup, message admission, cold resume, parent ownership, settlement, and disposal |
 | [`src/activation.ts`](src/activation.ts) | Execution records, capacity slots, child locks, and local output capture |
-| [`src/continuation-messages.ts`](src/continuation-messages.ts) | Adjacent-Agent messages, return guidance, and settlement notices |
+| [`src/continuation-messages.ts`](src/continuation-messages.ts) | Adjacent-Agent messages, return guidance, settlement notices, and delegation-rejection notices |
 | [`src/internal.ts`](src/internal.ts) | Host-only Queue and Steer adapters plus standard adjacent-Agent messaging markers |
 | [`src/structured.ts`](src/structured.ts) | Activation-scoped structured capture and guards |
 | [`src/types.ts`](src/types.ts) | Public request, result, and provider contracts |
@@ -174,6 +180,20 @@ One notice per settled activation using parent delivery. Caller delivery adds no
 
 Append-only in the parent: the notice follows its reusable request prefix. Reaching an idle parent starts one independent model request; reaching a busy one does not.
 
+### Delegation rejection notice
+
+#### What the model sees
+
+The direct parent of a parent-delivery delegated child receives one runtime notice per tool whose operation the delegation pin rejected. The notice names the child and the tool, states that the child's permission scope was fixed when it started and that approval asks are disabled in that scope, and tells the parent to send a task that needs no wider access or do that work itself. Rejections the child's own policy answerer made are not reported this way.
+
+#### Token effect
+
+One notice per rejected tool name while the manager keeps the child; a child that retries the same tool produces no further notices, while a released and resumed child may report once more. Children that never ask for anything add nothing.
+
+#### KV Cache effect
+
+Append-only in the parent: the notice extends the existing request prefix. Reaching an idle parent starts one independent model request; reaching a busy one does not.
+
 ### Child delegation-scope statement
 
 #### What the model sees
@@ -210,6 +230,7 @@ These limits define when the seam is a poor fit or needs special operational car
 - **Process-local residency** — the Activation inbox and ownership graph do not coordinate two harness processes; concurrent access to one persistence store needs a durable mailbox and cross-process lease protocol.
 - **No replay of accepted-but-unlogged messages** — a crash can lose an accepted prompt that never reached the child's session log; the lost message is not replayed automatically.
 - **No durable parent mailbox** — child-to-parent messages require a resident continuable child and live direct parent, and provide acceptance identity rather than exactly-once delivery.
+- **Delegation notices are process-local** — the reported-tool memory and the delegation-pin attribution live in the owning manager, never in the Session log, and are retired when it releases the child or drains, while a record that carries neither an attribution nor a reported tool retires with the epoch that left it empty, which bounds them by children still holding one of those two facts. A new process, or a released and resumed child, reports a rejected tool once more, and a child the process did not create starts unattributed, so its rejections produce no notice until a delegation-sourced policy event is observed.
 - **Lifecycle events are observe-only** — a run-affecting `subagent/end` continuation or decision API waits for a concrete consumer.
 
 <a id="dev-note"></a>

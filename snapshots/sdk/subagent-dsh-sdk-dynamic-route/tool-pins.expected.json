@@ -1,0 +1,38 @@
+{
+  "version": 2,
+  "class": "sdk/sdk-dsh-sdk-dynamic-route",
+  "capability": "escalation",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "list_subagent_models",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:5a2ed9d41c353cb5d5d9dae7efb30d6479df08c4bc096b6cb557f2439a467135"
+    }
+  ]
+}

@@ -6,6 +6,7 @@
  * roster's Connection, and it survives a Loader rebuild of the declarer.
  */
 import { describe, expect, onTestFinished, vi } from 'vitest'
+import type {} from 'vitest/jsdom'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { createClientTest, type TestClient, webApp } from '@deepseek-ai/dsh-client-test-runtime/src/assembly/index.ts'
 import { inject } from '../src/client/index.ts'
@@ -21,7 +22,7 @@ const COLD_BOOT_TIMEOUT_MS = 60_000
 
 /** The page authority the `connection` plugin classifies at apply, reconfigured through the jsdom instance vitest exposes. */
 function setPageUrl(url: string): void {
-  (globalThis as unknown as { jsdom: { reconfigure(settings: { url: string }): void } }).jsdom.reconfigure({ url })
+  jsdom.reconfigure({ url })
 }
 
 function injectedOf(c: TestClient): SettingsRootInjected {

@@ -1,0 +1,37 @@
+{
+  "version": 2,
+  "class": "session/workspace-dependencies/workspace-dependencies",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "load_workspace_dependencies",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:eef99d168711e0c7ba11323d06203ae27ac860e48400263b93e90220be5e6920"
+    }
+  ]
+}

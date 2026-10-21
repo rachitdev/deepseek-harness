@@ -58,6 +58,8 @@ import {
 } from './generation.ts'
 
 export type { JsonlCompression } from './format.ts'
+export { decodeSessionLog, readSessionLog } from './reader.ts'
+export type { SessionLogRecord, SessionLogRecords } from './reader.ts'
 
 /**
  * Internal handoff-reuse policy, not deployment configuration: a cold

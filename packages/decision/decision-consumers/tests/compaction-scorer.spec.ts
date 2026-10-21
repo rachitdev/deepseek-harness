@@ -1,17 +1,17 @@
-import type { DecisionRequest, DecisionResult } from '@deepseek-ai/dsh-decision'
+import type { DecisionAnswer, DecisionRequest, DecisionResult } from '@deepseek-ai/dsh-decision'
 import { describe, expect, it, vi } from 'vitest'
 import { scoreCompactionItems } from '../src/compaction-scorer.ts'
 import { createMockDecisionService } from './helpers.ts'
 
 /** Answer every question in a batch uniformly, so a test asserts batching rather than policy. */
 function answerAll(request: DecisionRequest, verdict: 'keep' | 'drop'): DecisionResult {
-  const answers: Record<string, unknown> = {}
+  const answers: Record<string, DecisionAnswer> = {}
   for (const key of Object.keys(request.questions)) {
     answers[key] = key.startsWith('val_')
       ? { type: 'score', score: verdict === 'keep' ? 3 : 0.1, probabilities: { '0': 1 } }
       : { type: 'boolean', probability: verdict === 'keep' ? 0.99 : 0.01 }
   }
-  return { providerId: 'jev', answers } as unknown as DecisionResult
+  return { providerId: 'jev', answers }
 }
 
 describe('scoreCompactionItems', () => {

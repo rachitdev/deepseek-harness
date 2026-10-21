@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "class": "session/ptc-shell/ptc-shell",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "run_code"
+      ],
+      "digest": "sha256:318b1dc1888d6998397dfc026e89e4b2e59d6b24b0097ddfdf1cfea78d1d9b22"
+    }
+  ]
+}

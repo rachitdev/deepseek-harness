@@ -1653,6 +1653,11 @@
     },
     {
       "doc": "docs/subsystems/subagent.md",
+      "symbol": "SubagentDelegationNoticeSource",
+      "source": "packages/subagent/subagent/src/continuation-messages.ts"
+    },
+    {
+      "doc": "docs/subsystems/subagent.md",
       "symbol": "SubagentSendMessageOptions",
       "source": "packages/subagent/subagent/src/types.ts"
     },

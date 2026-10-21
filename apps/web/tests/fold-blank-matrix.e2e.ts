@@ -28,7 +28,7 @@ import { newEnglishPage, openSettings } from './support.ts'
 
 declare global {
   interface Window {
-    foldProbe?: { readonly samples: Geometry[]; stop(): void }
+    foldProbe?: { readonly samples: Geometry[]; stop(): void; failure(): string | undefined }
     foldMeasure?: (root: string) => Geometry
   }
 }
@@ -143,10 +143,17 @@ interface Geometry {
   readonly following: boolean
   /** A row was closing on this sample. */
   readonly collapsing: boolean
+  /** Milliseconds the closing animation still had to run on this sample; 0 when nothing closes. */
+  readonly closeMs: number
+  /** Sample time from `performance.now()`, for deriving the sampling interval. */
+  readonly at: number
 }
 
 /** Installed into each measured page before load; reads one scrollport's blank-area geometry. */
+// `installMeasure` is serialized into the page by `addInitScript`, so module scope does not
+// travel with it: every constant it reads must be declared inside it.
 function installMeasure(): void {
+  const FOLD_CEILING_MS = 1_000
   window.foldMeasure = (root) => {
     const host = document.querySelector<HTMLElement>(root)
     if (host === null) throw new Error(`scrollport is absent: ${root}`)
@@ -155,12 +162,25 @@ function installMeasure(): void {
     if (composer === null) throw new Error(`composer is absent: ${root}`)
     const composerTop = composer.getBoundingClientRect().top
     const spacer = host.querySelector<HTMLElement>('[data-chat-turn-spacer]')?.getBoundingClientRect().height ?? 0
-    const intervals = [...host.querySelectorAll<HTMLElement>('[data-chat-flow-key], [data-submission-echo], [data-pending-steering], [data-streaming], [data-chat-running]')]
+    const covered = [...host.querySelectorAll<HTMLElement>('[data-chat-flow-key], [data-submission-echo], [data-pending-steering], [data-streaming], [data-chat-running]')]
       .filter(element => element.closest('[hidden]') === null)
       .map((element) => {
         const rect = element.getBoundingClientRect()
         return [Math.max(rect.top, viewport.top), Math.min(rect.bottom, composerTop)] as const
       })
+    // No slot credit: a closing row reveals the space it is vacating, so that area counts as a gap
+    // like any other. Only a running collapse animation excuses it, and the test budgets those frames
+    // from the animation's own remaining time instead of a fixed count.
+    const closing = [...host.querySelectorAll<HTMLElement>('[data-chat-motion="collapse"]')]
+      .filter(element => element.closest('[hidden]') === null)
+    // A collapse that never ends (`endTime` is Infinity for an infinitely iterating animation) cannot
+    // excuse a gap, so it contributes nothing; a finished or finite one contributes its remaining time,
+    // clamped to the ceiling a fold is allowed to take.
+    const closeMs = Math.max(0, ...closing.flatMap(element => element.getAnimations().flatMap((animation) => {
+      const remaining = Number(animation.effect?.getComputedTiming().endTime) - Number(animation.currentTime ?? 0)
+      return Number.isFinite(remaining) ? [Math.min(remaining, FOLD_CEILING_MS)] : []
+    })))
+    const intervals = covered
       .filter(([top, bottom]) => bottom - top > 0.5)
       .sort((left, right) => left[0] - right[0])
     let cursor = viewport.top
@@ -181,7 +201,9 @@ function installMeasure(): void {
       top: host.scrollTop, floor: Math.max(0, host.scrollHeight - host.clientHeight), spacer,
       maxGap, gapAt, tailGap: composerTop - cursor,
       following: host.querySelector('[data-chat-following-tail]') !== null,
-      collapsing: host.querySelector('[data-chat-motion="collapse"]') !== null,
+      collapsing: closing.length > 0,
+      closeMs,
+      at: performance.now(),
     }
   }
 }
@@ -332,12 +354,23 @@ async function startTrace(page: Page, root: string): Promise<void> {
     if (read === undefined) throw new Error('fold measurement is not installed')
     const samples: Geometry[] = []
     let frame = 0
+    let failure: string | undefined
     const tick = (): void => {
-      // A scrollport can remount between frames; that frame contributes no sample.
-      try { samples.push(read(selector)) } catch (_remounting) { /* skip this frame */ }
+      // A scrollport can remount between frames; that frame contributes no sample, but any other
+      // measurement error is a defect in the probe, not a reason to record nothing.
+      try {
+        samples.push(read(selector))
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (!/scrollport is absent|composer is absent/u.test(message)) failure ??= message
+      }
       frame = requestAnimationFrame(tick)
     }
-    window.foldProbe = { samples, stop: () => { cancelAnimationFrame(frame) } }
+    window.foldProbe = {
+      samples,
+      stop: () => { cancelAnimationFrame(frame) },
+      failure: () => failure,
+    }
     frame = requestAnimationFrame(tick)
   }, root)
 }
@@ -347,6 +380,8 @@ async function stopTrace(page: Page): Promise<Geometry[]> {
     const probe = window.foldProbe
     if (probe === undefined) throw new Error('fold trace was not started')
     probe.stop()
+    const failure = probe.failure()
+    if (failure !== undefined) throw new Error(`fold measurement failed: ${failure}`)
     return probe.samples
   })
 }
@@ -800,6 +835,15 @@ async function run(world: World, scenario: Case): Promise<RunResult> {
   return { afterFold, afterTurn, samples, anchors }
 }
 
+/**
+ * The trace must hold at least one sample taken while a row was closing.
+ * @param samples - every geometry sample the run captured.
+ * @returns whether the closure was observed, so a silent probe cannot pass the gap assertions.
+ */
+function observedCollapse(samples: readonly Geometry[]): boolean {
+  return samples.some(sample => sample.collapsing)
+}
+
 function rounded(geometry: Geometry): Record<string, number | boolean> {
   return {
     top: Math.round(geometry.top), floor: Math.round(geometry.floor), spacer: Math.round(geometry.spacer),
@@ -831,6 +875,7 @@ describe.skipIf(MODE === 'record')('web e2e: blank area after next-message foldi
           afterFold: rounded(afterFold), afterTurn: rounded(afterTurn), anchors,
           peakGap: Math.round(Math.max(0, ...samples.map(sample => sample.maxGap))),
           framesOverLimit: transient.length, frames: samples.length,
+          collapseFrames: samples.filter(sample => sample.collapsing).length,
           peakSpacer: Math.round(Math.max(0, ...samples.map(sample => sample.spacer))),
         }
         const evidence = async (): Promise<void> => {
@@ -841,12 +886,32 @@ describe.skipIf(MODE === 'record')('web e2e: blank area after next-message foldi
         // Per-frame evidence is written for failures, or for every case with FOLDMX_EVIDENCE=1.
         if (process.env.FOLDMX_EVIDENCE === '1') await evidence()
         else onTestFailed(evidence)
+        // Every case runs with the trace armed, so a case that recorded nothing measured nothing.
+        expect.soft(samples.length, 'the trace recorded frames').toBeGreaterThan(0)
         if (scenario.origin === 'parent-message' || scenario.origin === 'steer') {
-          expect.soft(samples.some(sample => sample.collapsing), 'a control case folds nothing').toBe(false)
+          expect.soft(observedCollapse(samples), 'a control case folds nothing').toBe(false)
+        }
+        // Every queued case folds a row, so the probe must actually observe the collapse it budgets
+        // for: a measurement error that recorded nothing would otherwise pass by having no gap.
+        if (scenario.origin !== 'parent-message' && scenario.origin !== 'steer'
+          && scenario.timing === 'On next message') {
+          expect.soft(observedCollapse(samples), 'the trace records the collapsing row')
+            .toBe(true)
         }
         if (scenario.roomUntilReply !== true) {
           expect.soft(afterFold.maxGap, 'layout gap after the fold settles').toBeLessThanOrEqual(BLANK_LIMIT)
-          expect.soft(transient.length, 'animation frames with a layout gap').toBeLessThanOrEqual(TRANSIENT_FRAMES)
+          // Only a running collapse excuses a gap. Its budget comes from the animation's own remaining
+          // time over the measured sampling interval, so a slow sampler cannot fail a correct fold while
+          // a gap that outlives the animation still fails.
+          const interval = samples.length > 1
+            ? (samples[samples.length - 1]!.at - samples[0]!.at) / (samples.length - 1)
+            : 0
+          const budget = interval > 0
+            ? Math.ceil(Math.max(0, ...samples.map(sample => sample.closeMs)) / interval) + 1
+            : TRANSIENT_FRAMES
+          expect.soft(transient.filter(sample => sample.closeMs === 0).length,
+            'animation frames with a layout gap and no closing animation').toBeLessThanOrEqual(TRANSIENT_FRAMES)
+          expect.soft(transient.length, 'animation frames with a layout gap').toBeLessThanOrEqual(budget)
         }
         expect.soft(afterTurn.maxGap, 'layout gap after the Turn settles').toBeLessThanOrEqual(BLANK_LIMIT)
         if (scenario.landing === 'tail') {

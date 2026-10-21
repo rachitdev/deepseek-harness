@@ -57,8 +57,8 @@ class BashArgs(TypedDict):
     workdir: NotRequired[str]
     # Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies.
     run_in_background: NotRequired[bool]
-    # The narrowest wider sandbox mode for a one-shot retry of the exact command the sandbox just denied; the retry asks the user for approval.
-    sandbox_permissions: NotRequired[Literal["workspace-write", "danger-full-access"]]
+    # Sandbox mode for this one command. A narrower mode, including read-only, confines the command without approval. A wider mode is a one-shot retry of the exact command the sandbox just denied; the retry asks the user for approval.
+    sandbox_permissions: NotRequired[Literal["read-only", "workspace-write", "danger-full-access"]]
     # Required with sandbox_permissions: one sentence for the user explaining why this exact command needs the wider access. Use the language of the user’s current request.
     justification: NotRequired[str]
     # Additional keys beyond those declared are allowed.
@@ -140,8 +140,8 @@ class EditArgs(TypedDict):
     new_string: str
     # Replace all matches. Defaults to false; when false, old_string must appear exactly once.
     replace_all: NotRequired[bool]
-    # The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.
-    sandbox_permissions: NotRequired[Literal["workspace-write", "danger-full-access"]]
+    # Sandbox mode for this one operation. A narrower mode, including read-only, confines the operation without approval. A wider mode is a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.
+    sandbox_permissions: NotRequired[Literal["read-only", "workspace-write", "danger-full-access"]]
     # Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request.
     justification: NotRequired[str]
     # Additional keys beyond those declared are allowed.
@@ -325,10 +325,18 @@ class ReadImageOutputImage(TypedDict):
     name: NotRequired[str]
     originalDimensions: NotRequired[ReadImageOutputImageOriginalDimensions]
 
+class ReadImageOutputOcr(TypedDict):
+    text: str
+    engine: str
+    lang: NotRequired[str]
+    truncated: NotRequired[bool]
+    bytesRead: int
+
 class ReadImageOutput(TypedDict):
     # Canonical absolute path in the filesystem execution world.
     path: str
-    image: ReadImageOutputImage
+    image: NotRequired[ReadImageOutputImage]
+    ocr: NotRequired[ReadImageOutputOcr]
 
 class SendMessageArgs(TypedDict):
     # The agent id of your direct continuable child, or your direct parent when you are a resident continuable child.
@@ -497,8 +505,8 @@ class WriteArgs(TypedDict):
     file_path: str
     # Full UTF-8 text content to write.
     content: str
-    # The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.
-    sandbox_permissions: NotRequired[Literal["workspace-write", "danger-full-access"]]
+    # Sandbox mode for this one operation. A narrower mode, including read-only, confines the operation without approval. A wider mode is a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.
+    sandbox_permissions: NotRequired[Literal["read-only", "workspace-write", "danger-full-access"]]
     # Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request.
     justification: NotRequired[str]
     # Additional keys beyond those declared are allowed.

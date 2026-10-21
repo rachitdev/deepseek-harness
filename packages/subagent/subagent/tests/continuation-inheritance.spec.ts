@@ -210,20 +210,22 @@ describe('continuable policy inheritance', () => {
     expect(foldedSandboxMode(ctx, started.childId, loaded.events)).toBe('read-only')
   })
 
-  it('leaves an unswitched sandbox on the deployment default while still pinning approval', { timeout: 20_000 }, async () => {
+  it('states the deployment default as the delegated sandbox of an unswitched child', { timeout: 20_000 }, async () => {
     const { ctx, parent } = await setup([textResponse('child done')])
+    expect(ctx.sandboxPolicy.overrideOf(parent.session)).toBeUndefined()
 
     const started = await ctx.subagents.startActivation({ ...startSpec(parent), delivery: 'parent' })
     await waitNoActivation(ctx, started.childId)
 
     const loaded = await loadStoredSession(ctx.sessionPersistence, started.childId)
     expect(policyEvents(loaded.events)).toMatchObject([
+      { type: 'sandbox/mode', data: { mode: 'workspace-write', source: 'delegation' } },
       { type: 'approval/policy', data: { policy: 'never', source: 'delegation' } },
     ])
-    expect(foldedSandboxMode(ctx, started.childId, loaded.events)).toBeNull()
+    expect(foldedSandboxMode(ctx, started.childId, loaded.events)).toBe('workspace-write')
   })
 
-  it('pins approval after the fork prefix of an unswitched fork child', { timeout: 20_000 }, async () => {
+  it('pins approval and the effective sandbox after the fork prefix of an unswitched fork child', { timeout: 20_000 }, async () => {
     const { ctx, parent } = await setup([textResponse('parent turn'), textResponse('forked child')])
     parent.followup(createUserMessage({
       content: [{ type: 'text', text: 'parent work' }],
@@ -237,9 +239,10 @@ describe('continuable policy inheritance', () => {
     const loaded = await loadStoredSession(ctx.sessionPersistence, started.childId)
     expect(loaded.inheritedEventCount).toBeGreaterThan(0)
     expect(policyEvents(loaded.events)).toMatchObject([
+      { type: 'sandbox/mode', data: { mode: 'workspace-write', source: 'delegation' } },
       { type: 'approval/policy', data: { policy: 'never', source: 'delegation' } },
     ])
-    expect(foldedSandboxMode(ctx, started.childId, loaded.events)).toBeNull()
+    expect(foldedSandboxMode(ctx, started.childId, loaded.events)).toBe('workspace-write')
   })
 
   it('lets a later child-side switch win over the delegation snapshot', { timeout: 20_000 }, async () => {

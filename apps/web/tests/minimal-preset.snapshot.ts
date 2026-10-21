@@ -191,7 +191,7 @@ describe('minimal agent preset', () => {
     await assertFixtureInventory(SNAPSHOT_DIR, [
       'session.v3.jsonl',
       'system-prompt.expected.md',
-      'tool-schemas.expected.json',
+      'tool-pins.expected.json',
       'ui.expected.md',
     ])
   })
@@ -308,7 +308,7 @@ describe('minimal manual compaction', () => {
 
   it('keeps its snapshot inventory closed', async () => {
     await assertFixtureInventory(snapshotDir, [
-      'session.v4.jsonl', 'system-prompt.expected.md', 'tool-schemas.expected.json', 'ui.expected.md',
+      'session.v4.jsonl', 'system-prompt.expected.md', 'tool-pins.expected.json', 'ui.expected.md',
     ])
   })
 })
@@ -388,7 +388,7 @@ describe('minimal image reading', () => {
 
   it('keeps its snapshot inventory closed', async () => {
     await assertFixtureInventory(snapshotDir, [
-      'session.v4.jsonl', 'system-prompt.expected.md', 'tool-schemas.expected.json', 'ui.expected.md',
+      'session.v4.jsonl', 'system-prompt.expected.md', 'tool-pins.expected.json', 'ui.expected.md',
     ])
   })
 })

@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "class": "session/ptc-python/ptc-python",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "run_code"
+      ],
+      "digest": "sha256:5d671c362fa133dc214ed9f17386178c780ba170ccf706bea4a35d2a48810975"
+    }
+  ]
+}

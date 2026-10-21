@@ -44,6 +44,7 @@ import {
   decompressZstdPrefix,
   scanZstdFrames,
 } from './zstd.ts'
+import { readSessionLogPrefix } from './reader.ts'
 
 /** Internal scheduling bounds: preserve old decode cadence and cap each synchronous encode slice. */
 const MIGRATION_DECODE_YIELD_INTERVAL_MS = 500
@@ -95,18 +96,28 @@ export interface PrepareJsonlMigrationOptions {
   readonly signal?: AbortSignal
 }
 
-/** Small physical identity returned by an isolated generation verifier. */
-export interface JsonlVerifiedGeneration {
-  readonly identity: JsonlPhysicalIdentity
+/** Exact measurement of one byte sequence: its length and the SHA-256 over the same bytes. */
+export interface JsonlMeasurement {
   readonly bytes: number
   readonly digest: string
 }
 
-/** Physical byte prefix already proven to be a valid complete generation. */
-export interface JsonlExpectedPrefix {
+/** Physical identity returned by an isolated generation verifier, with the extent it verified. */
+export interface JsonlVerifiedGeneration {
+  readonly identity: JsonlPhysicalIdentity
+  /** Verified extent: the whole file, or the expected JSONL prefix when one was supplied. */
   readonly bytes: number
+  /** SHA-256 over that verified extent. */
   readonly digest: string
 }
+
+/**
+ * JSONL plaintext prefix the migrated generation must begin with: its length
+ * and the SHA-256 over those uncompressed bytes. Compressed bytes cannot serve
+ * as a prefix contract because independently encoded Zstandard frames that
+ * decode to the same rows need not be byte-identical.
+ */
+export type JsonlExpectedPrefix = JsonlMeasurement
 
 /** A historical source changed after its single decode and migration pass. */
 export class JsonlGenerationSourceChangedError extends Error {
@@ -486,8 +497,8 @@ async function decodeStreamingMigration(
  * @param compression - configured physical encoding.
  * @param expectedId - Session identity expected in the header.
  * @param expectedEventCount - exact logical event count expected after decoding.
- * @param expectedPrefix - verified migration prefix; an append tail may be present and is not validated.
- * @returns stable physical identity and digest for publication comparison.
+ * @param expectedPrefix - JSONL plaintext prefix the migration wrote; an appended batch may follow and is not validated.
+ * @returns stable physical identity and the verified extent for publication comparison.
  */
 export async function verifyJsonlCurrentGeneration(
   path: string,
@@ -511,12 +522,9 @@ async function verifyCurrentGeneration(
   const bytes = await fs.readFile(path)
   const after = await fs.stat(path)
   if (expectedPrefix !== undefined) {
-    if (bytes.length < expectedPrefix.bytes) {
-      throw new Error('target bytes are shorter than the migrated generation')
-    }
-    const digest = createHash('sha256').update(bytes.subarray(0, expectedPrefix.bytes)).digest('hex')
+    const digest = createHash('sha256').update(await readSessionLogPrefix(bytes, expectedPrefix.bytes)).digest('hex')
     if (digest !== expectedPrefix.digest) {
-      throw new Error('target bytes do not begin with the migrated generation')
+      throw new Error('target log does not begin with the migrated generation')
     }
     return { identity: after, bytes: expectedPrefix.bytes, digest }
   }
@@ -665,8 +673,10 @@ async function syncDirectory(path: string, internals: JsonlGenerationInternals):
 
 interface StreamedMigrationStage {
   readonly path: string
-  readonly bytes: number
-  readonly digest: string
+  /** Physical bytes written to the stage. */
+  readonly file: JsonlMeasurement
+  /** JSONL plaintext the stage encodes. */
+  readonly plaintext: JsonlMeasurement
 }
 
 /** Produce bounded JSONL chunks while yielding between main-thread encoding slices. */
@@ -711,6 +721,17 @@ async function writeMigrationChunks(
   if (bytes > 0) await write(pending.length === 1 ? pending[0] as Buffer : Buffer.concat(pending, bytes))
 }
 
+/** Report every plaintext chunk to the stage measurement before it is encoded. */
+async function* measureMigrationPlaintext(
+  chunks: AsyncIterable<Buffer>,
+  record: (chunk: Buffer) => void,
+): AsyncGenerator<Buffer, void, void> {
+  for await (const chunk of chunks) {
+    record(chunk)
+    yield chunk
+  }
+}
+
 /** Encode directly into one synced stage without a whole-artifact row or byte buffer. */
 async function writeSyncedTemp(
   currentPath: string,
@@ -734,20 +755,27 @@ async function writeSyncedTemp(
       throw error
     }
   }
-  const hash = createHash('sha256')
+  const fileHash = createHash('sha256')
+  const plaintextHash = createHash('sha256')
   let bytes = 0
+  let plaintextBytes = 0
   const write = async (chunk: Buffer): Promise<void> => {
     await handle.writeFile(chunk)
-    hash.update(chunk)
+    fileHash.update(chunk)
     bytes += chunk.length
+  }
+  const recordPlaintext = (chunk: Buffer): void => {
+    plaintextHash.update(chunk)
+    plaintextBytes += chunk.length
   }
   let failure: unknown
   try {
     const headerValue = format.encodeHeader(artifact.header, artifact.inheritedEventCount)
     const header = Buffer.from(`${stringifyJson(headerValue, 'migrated session header')}\n`)
+    recordPlaintext(header)
     await write(compression === 'zstd' ? await compressZstdFrame(header) : header)
     if (artifact.events.length > 0) {
-      const rows = encodeMigrationRows(artifact, format, signal)
+      const rows = measureMigrationPlaintext(encodeMigrationRows(artifact, format, signal), recordPlaintext)
       if (compression === 'none') {
         await writeMigrationChunks(rows, write)
       } else {
@@ -783,7 +811,11 @@ async function writeSyncedTemp(
     await removeTemporary(path, writeError, internals)
     throw writeError
   }
-  return { path, bytes, digest: hash.digest('hex') }
+  return {
+    path,
+    file: { bytes, digest: fileHash.digest('hex') },
+    plaintext: { bytes: plaintextBytes, digest: plaintextHash.digest('hex') },
+  }
 }
 
 /** Remove one temporary file without hiding the operation failure that made it disposable. */
@@ -899,7 +931,7 @@ async function publishPreparedMigration(
       artifact.header.id,
       eventCount,
     )
-    if (verifiedStage.bytes !== staged.bytes || verifiedStage.digest !== staged.digest) {
+    if (verifiedStage.bytes !== staged.file.bytes || verifiedStage.digest !== staged.file.digest) {
       throw new Error('staged session generation changed during verification')
     }
     await internals.barrier('before-source-check', 1)
@@ -925,10 +957,10 @@ async function publishPreparedMigration(
           compression,
           artifact.header.id,
           eventCount,
-          staged,
+          staged.plaintext,
         )
-        if (candidate.bytes !== staged.bytes || candidate.digest !== staged.digest) {
-          throw new Error('target bytes differ from the migrated generation')
+        if (candidate.bytes !== staged.plaintext.bytes || candidate.digest !== staged.plaintext.digest) {
+          throw new Error('target log differs from the migrated generation')
         }
         return candidate
       })

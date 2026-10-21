@@ -3,8 +3,7 @@ import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { promisify } from 'node:util'
-import { zstdDecompress } from 'node:zlib'
+import { readSessionLog } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 import { execa } from 'execa'
 import { describe, expect, it, onTestFinished } from 'vitest'
@@ -15,7 +14,6 @@ const launch = resolveExampleLaunch({
   srcBin: fileURLToPath(new URL('../../../src/bin.ts', import.meta.url)),
   mode: 'lib',
 })
-const decompress = promisify(zstdDecompress)
 
 /** Frame one text or tool response from the local Messages endpoint. */
 function messagesResponse(content: Record<string, unknown>, stopReason: 'end_turn' | 'max_tokens' | 'tool_use'): string {
@@ -186,12 +184,19 @@ describe('Python SDK dsh profile keyless smoke', () => {
       const exit = await child
       expect(exit.exitCode, `signal=${String(exit.signal)}; stderr=${stderr}`).toBe(0)
       const sessionsRoot = join(root, '.dsh', 'sessions')
-      const files = await readdir(sessionsRoot, { recursive: true })
-      const log = files.find(file => file.endsWith('.jsonl.zstd'))
-      expect(log).toBeDefined()
-      const compressed = await readFile(join(sessionsRoot, log!))
-      expect(compressed.subarray(0, 4).toString('hex')).toBe('28b52ffd')
-      expect(JSON.parse((await decompress(compressed)).toString())).toMatchObject({ type: 'session', id: 'main' })
+      const logs = (await readdir(sessionsRoot, { recursive: true })).filter(file => file.endsWith('.jsonl.zstd'))
+      expect(logs.length).toBeGreaterThan(0)
+      const stored = await Promise.all(logs.map(async (file) => {
+        const compressed = await readFile(join(sessionsRoot, file))
+        return { compressed, log: await readSessionLog(compressed) }
+      }))
+      for (const entry of stored) {
+        expect(entry.compressed.subarray(0, 4).toString('hex')).toBe('28b52ffd')
+      }
+      const main = stored.find(entry => entry.log.records[0]['id'] === 'main')
+      expect(main).toBeDefined()
+      expect(main?.log.records[0]).toMatchObject({ type: 'session', id: 'main' })
+      expect(main?.log.records.length).toBeGreaterThan(1)
     } finally {
       // No-op after exit; reject: false settles on every outcome, so cleanup never races teardown.
       child.kill('SIGKILL')

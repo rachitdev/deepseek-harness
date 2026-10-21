@@ -32,6 +32,9 @@
 /deepseek-ai-dsh-subagent/use-this-package/child-presets:
   en: a740e5e9bdd661d9
   zh: 712a5458fc8b3615
+/deepseek-ai-dsh-subagent/use-this-package/delegated-permission-scope:
+  en: 2d93c03dcecfd623
+  zh: d6acdfa8ee07ceb9
 /deepseek-ai-dsh-subagent/use-this-package/messaging-interrupting-and-discovering:
   en: 050177fbbaade432
   zh: 99f2b9f98088314d
@@ -45,8 +48,8 @@
   en: ed526b6f34a3d6bf
   zh: 47a90717b89d4c79
 /deepseek-ai-dsh-subagent/understand-the-implementation/source-map:
-  en: 410b6215e3a29221
-  zh: d17d6ea102fe8f87
+  en: 03389fae24a37f34
+  zh: b634882436cfa485
 /deepseek-ai-dsh-subagent/understand-the-implementation/provider-preparation-and-structured-output:
   en: f78c5e931f3a3676
   zh: 3c63f637dbaa8101
@@ -77,6 +80,18 @@
 /deepseek-ai-dsh-subagent/model-experience/settlement-notice/kv-cache-effect:
   en: d6b1d618083da79b
   zh: 9a28942b7d53c382
+/deepseek-ai-dsh-subagent/model-experience/delegation-rejection-notice:
+  en: 72aa1d6735cac2c3
+  zh: 7a9e3afa4f03830b
+/deepseek-ai-dsh-subagent/model-experience/delegation-rejection-notice/what-the-model-sees:
+  en: b5de7df8a78ede51
+  zh: 1d71c2a8f7bc3a45
+/deepseek-ai-dsh-subagent/model-experience/delegation-rejection-notice/token-effect:
+  en: 9b23056cde92d161
+  zh: 50c3614e9fdee492
+/deepseek-ai-dsh-subagent/model-experience/delegation-rejection-notice/kv-cache-effect:
+  en: 8053dd714b3f4e67
+  zh: 6c3934c2a4c9325b
 /deepseek-ai-dsh-subagent/model-experience/child-delegation-scope-statement:
   en: dc8544657916e194
   zh: b0feff0764b5d903
@@ -93,8 +108,8 @@
   en: 59e848fca82a46fb
   zh: fcd6a8a2bb58609f
 /deepseek-ai-dsh-subagent/known-limitations-and-deferred-work:
-  en: b663a2e94185901c
-  zh: 8d2937aa203bda59
+  en: dc25b4513570344d
+  zh: cf252d8787bfc7cf
 /deepseek-ai-dsh-subagent/known-limitations-and-deferred-work/dev-note:
   en: 25cc0909348666bb
   zh: 95517f12de100049

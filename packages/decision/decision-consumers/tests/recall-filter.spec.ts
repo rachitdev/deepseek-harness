@@ -4,12 +4,13 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import DecisionRuntime, { DecisionError } from '@deepseek-ai/dsh-decision'
 import type { DecisionAnswer, DecisionProvider, DecisionRequest, DecisionResult } from '@deepseek-ai/dsh-decision'
-import LlmRuntime, { createUserMessage, LlmAdapter, type GenerateOptions, type StreamChunk, type UserMessage } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, LlmAdapter, ToolCallId, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as consumers from '../src/index.ts'
+import { recallSource } from './fixtures/recall-loader/recall-source.ts'
 
 const RECALL = [
   '<openviking-context>',
@@ -73,9 +74,7 @@ function mountRecallSource(
   extraBlock = false,
   prepend = true,
 ): void {
-  const source = plugin === 'cortexdb-memory'
-    ? { kind: 'cortexdb-memory' }
-    : { kind: `plugin:${plugin}`, plugin, form: 'recall' }
+  const source = recallSource(plugin)
   ctx.on('agent/pre-step', async (_payload, next) => {
     const decision = await next()
     if (decision.kind !== 'enter') return decision
@@ -83,7 +82,7 @@ function mountRecallSource(
       ...decision,
       messages: [...decision.messages, createUserMessage({
         content: extraBlock ? [{ type: 'text', text }, { type: 'text', text: 'second block' }] : [{ type: 'text', text }],
-        source: source as unknown as UserMessage['source'],
+        source,
       })],
     }
   }, prepend ? { prepend: true } : undefined)
@@ -143,7 +142,7 @@ function recallTexts(agent: Awaited<ReturnType<typeof runTurn>>, kind = 'plugin:
     .flatMap(message => message.content.flatMap(block => block.type === 'text' ? [block.text] : []))
 }
 
-const TOOL_BLOCK: UserContent[number] = { type: 'tool-call', id: 'call-1', name: 'noop', arguments: {} } as unknown as UserContent[number]
+const TOOL_BLOCK: UserContent[number] = { type: 'tool-call', id: ToolCallId('call-1'), name: 'noop', arguments: '{}' }
 
 describe('live recall filter', () => {
   it('omits low-relevance items and withholds flagged and unscreenable items in the logged request', async () => {

@@ -2,6 +2,7 @@ version: 1
 scenario: text-turn
 profile: sdk
 composition: sdk-upload
+capability: escalation
 recording: live
 environment:
   DSH_SNAPSHOT_FEEDBACK: '1'

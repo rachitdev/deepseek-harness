@@ -652,9 +652,13 @@ async function toggleOptionalBundles(page: Page): Promise<void> {
       changed: number
       inactive: string[]
       restored: boolean
+      recorded: boolean
     }> = []
+    const recordedState = async (name: string): Promise<boolean | undefined> =>
+      (await remote<Bundle[]>('pluginManager/listBundles', {})).find(candidate => candidate.name === name)?.enabled
     for (const entry of bundles.filter(candidate => candidate.optional)) {
       const enable = await remote<{ application: string; error?: unknown }>('pluginManager/setBundleEnabled', { name: entry.name, enabled: true })
+      const enabledRecord = await recordedState(entry.name)
       const plugins = await remote<Plugin[]>('pluginManager/listPlugins', {})
       const disable = await remote<{ application: string }>('pluginManager/setBundleEnabled', { name: entry.name, enabled: false })
       const after = await remote<Plugin[]>('pluginManager/listPlugins', {})
@@ -668,6 +672,7 @@ async function toggleOptionalBundles(page: Page): Promise<void> {
         changed: changed.length,
         inactive: changed.filter(plugin => plugin.enabled && plugin.fiberPhase !== 'active').map(stateOf),
         restored: JSON.stringify(rowsOf(after)) === JSON.stringify(rowsOf(baseline)),
+        recorded: enabledRecord === true,
       })
     }
     return {
@@ -691,6 +696,8 @@ async function toggleOptionalBundles(page: Page): Promise<void> {
   // Each bundle changes Loader rows, every enabled row it changes runs, and switching it off restores the prior rows.
   expect(result.toggles.filter(toggle => toggle.changed === 0 || toggle.inactive.length > 0 || !toggle.restored)
     .map(({ name, changed, inactive, restored }) => ({ name, changed, inactive, restored }))).toEqual([])
+  // The bundle list reads the enabled state back from the profile the switch wrote, not just the live tree.
+  expect(result.toggles.filter(toggle => !toggle.recorded).map(({ name }) => ({ name }))).toEqual([])
   const pluginsWith = (bundle: string): Array<{ moduleName: string; enabled: boolean; fiberPhase: string | null }> =>
     result.toggles.find(toggle => toggle.name === bundle)?.plugins ?? []
   // The bundle layer applies after the base layers: its disable of the base title row takes effect.

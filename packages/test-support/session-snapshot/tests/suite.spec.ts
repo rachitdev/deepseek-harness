@@ -1,5 +1,5 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { rm } from 'node:fs/promises'
+import { readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,7 +8,12 @@ import {
   assertPersistedSessionVersion,
   assertSessionFixtureVersion,
   defineAcpSnapshotSuite,
+  emptyToolCatalog,
+  formatToolCatalog,
   latestPersistedSessionPaths,
+  mergeToolCatalog,
+  parseToolCatalog,
+  parseToolPins,
   parsePersistedSessionFilename,
   parseSessionFixtureName,
   persistedSessionFilename,
@@ -64,7 +69,15 @@ const AGENT = {
   tsconfigPath: fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url)),
 }
 
-const REPLAY_DIR = fileURLToPath(new URL('./fixtures/suite', import.meta.url))
+const REPLAY_SRC = fileURLToPath(new URL('./fixtures/suite', import.meta.url))
+// The pin-refresh suite rewrites pins, so replay runs over a throwaway copy of
+// the committed corpus.
+const REPLAY_DIR = mkdtempSync(join(tmpdir(), 'acp-snap-suite-'))
+cpSync(REPLAY_SRC, REPLAY_DIR, { recursive: true })
+const CATALOG_ROOT = mkdtempSync(join(tmpdir(), 'acp-snap-catalog-'))
+const CATALOG_PATH = join(CATALOG_ROOT, 'tool-catalog.json')
+const CATALOG_PARTS = join(CATALOG_ROOT, 'parts')
+const CATALOG_NAMESPACE = 'suite'
 
 function stabilize(
   fresh: string,
@@ -149,7 +162,15 @@ afterAll(async () => {
 function staleRefreshFixtures(dir: string): void {
   writeFileSync(join(dir, 'plain-turn', 'stdout.expected.jsonl'), 'stale stdout\n')
   writeFileSync(join(dir, 'pin-turn', 'system-prompt.expected.md'), 'STALE PROMPT\n')
-  writeFileSync(join(dir, 'pin-turn', 'tool-schemas.expected.json'), '{"initial":[{"name":"stale"}],"changes":[]}\n')
+  writeFileSync(join(dir, 'pin-turn', 'tool-pins.expected.json'), [
+    '{',
+    '  "version": 2,',
+    '  "class": "stale",',
+    '  "capability": "unconfined",',
+    '  "sets": [{ "tools": ["stale"], "digest": "sha256:00" }]',
+    '}',
+    '',
+  ].join('\n'))
   writeFileSync(join(dir, 'plain-turn', 'tool-schemas.1.expected.json'), '{"initial":[{"name":"stale-child"}],"changes":[]}\n')
   writeFileSync(join(dir, 'plain-turn', 'system-prompt.1.expected.md'), 'STALE CHILD PROMPT\n')
 
@@ -170,18 +191,59 @@ function staleRefreshFixtures(dir: string): void {
   ].join('\n'))
 }
 
+describe('defineAcpSnapshotSuite: pin refresh', () => {
+  defineAcpSnapshotSuite({
+    agent: AGENT,
+    snapshotsDir: REPLAY_DIR,
+    scenarios: REPLAY_SCENARIOS,
+    mode: 'repin',
+    catalogPath: CATALOG_PATH,
+    catalogNamespace: CATALOG_NAMESPACE,
+    catalogPartsDir: CATALOG_PARTS,
+  })
+  afterAll(async () => {
+    let catalog = emptyToolCatalog()
+    for (const name of (await readdir(CATALOG_PARTS)).filter(entry => entry.endsWith('.json')).sort()) {
+      catalog = mergeToolCatalog(catalog, parseToolCatalog(await readFile(join(CATALOG_PARTS, name), 'utf8')))
+    }
+    await writeFile(CATALOG_PATH, formatToolCatalog(catalog))
+    await rm(CATALOG_PARTS, { recursive: true, force: true })
+  })
+})
+
 describe('defineAcpSnapshotSuite: replay mode', () => {
-  defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: REPLAY_DIR, scenarios: REPLAY_SCENARIOS, mode: 'replay' })
+  defineAcpSnapshotSuite({
+    agent: AGENT,
+    snapshotsDir: REPLAY_DIR,
+    scenarios: REPLAY_SCENARIOS,
+    mode: 'replay',
+    catalogPath: CATALOG_PATH,
+    catalogNamespace: CATALOG_NAMESPACE,
+  })
 })
 
 // The record suite's tests run in registration order: rec-pin re-records the
 // pinned fixture FIRST, so rec-child's uniformity guard reads the fresh pin.
 describe('defineAcpSnapshotSuite: record mode', () => {
-  defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: recordDir, scenarios: RECORD_SCENARIOS, mode: 'record' })
+  defineAcpSnapshotSuite({
+    agent: AGENT,
+    snapshotsDir: recordDir,
+    scenarios: RECORD_SCENARIOS,
+    mode: 'record',
+    catalogPath: CATALOG_PATH,
+    catalogNamespace: CATALOG_NAMESPACE,
+  })
 })
 
 describe('defineAcpSnapshotSuite: refresh mode', () => {
-  defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: refreshDir, scenarios: REPLAY_SCENARIOS, mode: 'refresh' })
+  defineAcpSnapshotSuite({
+    agent: AGENT,
+    snapshotsDir: refreshDir,
+    scenarios: REPLAY_SCENARIOS,
+    mode: 'refresh',
+    catalogPath: CATALOG_PATH,
+    catalogNamespace: CATALOG_NAMESPACE,
+  })
 })
 
 describe('defineAcpSnapshotSuite: refresh write-back', () => {
@@ -211,9 +273,10 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
       'NEW PROMPT LINE',
       '',
     ].join('\n'))
-    const schemas = parseToolSchemasSnapshot(readFileSync(join(refreshDir, 'pin-turn', 'tool-schemas.expected.json'), 'utf8'))
-    expect(schemas.initial.map(tool => (tool as { name: string }).name)).toEqual(['t1'])
-    expect(schemas.changes.map(set => set.map(tool => (tool as { name: string }).name))).toEqual([['t1', 't2']])
+    const pins = parseToolPins(readFileSync(join(refreshDir, 'pin-turn', 'tool-pins.expected.json'), 'utf8'))
+    expect(pins.sets.map(set => set.tools)).toEqual([['t1'], ['t1', 't2']])
+    expect(pins.class).toBe(`${CATALOG_NAMESPACE}/main`)
+    expect(pins.capability).toBe('unconfined')
     const childSchemas = readFileSync(join(refreshDir, 'plain-turn', 'tool-schemas.1.expected.json'), 'utf8')
     expect(childSchemas).toContain('"name": "child-only"')
     expect(childSchemas).not.toContain('stale-child')
@@ -404,33 +467,6 @@ describe('defineAcpSnapshotSuite: registration contract', () => {
         mode: 'replay',
       })
     }).toThrow(/consumer names system-prompt snapshot source "redirect", which does not own its sidecar/)
-  })
-
-  it('rejects shared sidecars with different header-change counts', () => {
-    expect(() => {
-      defineAcpSnapshotSuite({
-        agent: AGENT,
-        snapshotsDir: REPLAY_DIR,
-        scenarios: [
-          {
-            name: 'owner',
-            hasModelTurn: true,
-            recorded: true,
-            pinsHeader: true,
-            expectedHeaderChanges: 1,
-          },
-          {
-            name: 'consumer',
-            hasModelTurn: true,
-            recorded: true,
-            pinsHeader: true,
-            headerClass: 'consumer',
-            toolSchemasSource: 'owner',
-          },
-        ],
-        mode: 'replay',
-      })
-    }).toThrow(/consumer and owner declare different expectedHeaderChanges counts for shared tool-schema snapshot/)
   })
 
   it('rejects shared prompt sidecars with different prompt-change counts', () => {

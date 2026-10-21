@@ -27,13 +27,14 @@ export {
   SessionAlreadyOwnedError,
   SessionFormatUnsupportedError,
   SessionHandleClosedError,
+  SessionLogCorruptError,
   SessionOwnershipLostError,
   SessionPersistenceCorruptionError,
   SessionPersistenceNotFoundError,
   SessionReadOnlyError,
   sessionFormatVersionRefusal,
 } from './errors.ts'
-export type { SessionLocation } from './errors.ts'
+export type { SessionLocation, SessionLogCorruptionKind, SessionLogDamage } from './errors.ts'
 export {
   assertContiguous,
   assertStoredId,

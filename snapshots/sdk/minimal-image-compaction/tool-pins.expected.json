@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "class": "sdk/sdk-minimal-image-compaction",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "read_image",
+        "working_directory"
+      ],
+      "digest": "sha256:89a85b45e05753efe14736807cf267e902b7b6e816bfd1561201c347128e266c"
+    },
+    {
+      "tools": [
+        "bash",
+        "read_image",
+        "working_directory"
+      ],
+      "digest": "sha256:89a85b45e05753efe14736807cf267e902b7b6e816bfd1561201c347128e266c"
+    },
+    {
+      "tools": [
+        "bash",
+        "read_image",
+        "working_directory"
+      ],
+      "digest": "sha256:89a85b45e05753efe14736807cf267e902b7b6e816bfd1561201c347128e266c"
+    }
+  ]
+}

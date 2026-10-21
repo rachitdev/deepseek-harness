@@ -3,5 +3,7 @@ scenario: workflow-run
 profile: headless
 composition: default
 recording: live
+capability: unconfined
+permission: danger-full-access
 header:
   class: default

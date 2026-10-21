@@ -7,14 +7,14 @@ import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { SessionSeq, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
-import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import { SessionLogCorruptError, type SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import {
   generationLogPath, logPath, scanLog, sessionDir, toHeaderLine, type JsonlCompression,
 } from '../src/format.ts'
 import {
-  compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames,
-  type ZstdFrameDecoder,
+  compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompressZstdPrefix, isSkippableFrameMagic,
+  scanZstdFrames, type ZstdFrameDecoder,
 } from '../src/zstd.ts'
 import { NodePrivateZstdFrameDecoder } from '../src/zstd-private-decoder.ts'
 import { PublicZstdFrameDecoder } from '../src/zstd-public-decoder.ts'
@@ -23,6 +23,17 @@ import {
 } from '../../session-persistence/tests/contract.ts'
 
 const MAGIC = Buffer.from([0x28, 0xB5, 0x2F, 0xFD])
+
+/** The typed corruption one scanner call raises. */
+function scanFailure(run: () => unknown): { readonly kind: string; readonly damage: unknown } {
+  try {
+    run()
+  } catch (error: unknown) {
+    if (!(error instanceof SessionLogCorruptError)) throw error
+    return { kind: error.kind, damage: error.damage }
+  }
+  throw new Error('the scanner accepted invalid frame structure')
+}
 const roots: string[] = []
 const contexts: Context[] = []
 
@@ -344,6 +355,93 @@ describe('Zstandard frame structure', () => {
       Buffer.from([0x20, 0x00, 0x07, 0x00, 0x00]),
     ])
     expect(() => scanZstdFrames(reservedBlock)).toThrow(/reserved block type/)
+  })
+
+  it('reports invalid-container for a frame magic that is not Zstandard', async () => {
+    const frame = await compressZstdFrame('{"type":"session"}\n')
+
+    expect(scanFailure(() => scanZstdFrames(Buffer.alloc(4))))
+      .toEqual({ kind: 'invalid-container', damage: { offset: 0 } })
+    expect(scanFailure(() => scanZstdFrames(Buffer.concat([frame, Buffer.from([0x00, 0x00, 0x00, 0x00])]))))
+      .toEqual({ kind: 'invalid-container', damage: { offset: frame.length } })
+  })
+
+  it('reports invalid-container for a reserved frame-header bit', () => {
+    expect(scanFailure(() => scanZstdFrames(Buffer.concat([MAGIC, Buffer.from([0x08])]))))
+      .toEqual({ kind: 'invalid-container', damage: { offset: 4 } })
+  })
+
+  it('reports invalid-container for a reserved block type', () => {
+    const reservedBlock = Buffer.concat([MAGIC, Buffer.from([0x20, 0x00, 0x07, 0x00, 0x00])])
+
+    expect(scanFailure(() => scanZstdFrames(reservedBlock)))
+      .toEqual({ kind: 'invalid-container', damage: { offset: 6 } })
+  })
+
+  it('rejects a negative scan start', async () => {
+    const frame = await compressZstdFrame('{"type":"session"}\n')
+
+    expect(() => scanZstdFrames(frame, Number.POSITIVE_INFINITY, { start: -1 }))
+      .toThrow(/ZstdScanOptions\.start must be an integer within 0\.\.\d+, got -1/)
+    expect(() => scanZstdFrames(frame, Number.POSITIVE_INFINITY, { start: -1 })).toThrow(RangeError)
+  })
+
+  it('rejects a fractional scan start', async () => {
+    const frame = await compressZstdFrame('{"type":"session"}\n')
+
+    expect(() => scanZstdFrames(frame, Number.POSITIVE_INFINITY, { start: 1.5 }))
+      .toThrow(/ZstdScanOptions\.start must be an integer within 0\.\.\d+, got 1\.5/)
+    expect(() => scanZstdFrames(frame, Number.POSITIVE_INFINITY, { start: 1.5 })).toThrow(RangeError)
+  })
+
+  it('rejects a scan start past the buffer end', async () => {
+    const frame = await compressZstdFrame('{"type":"session"}\n')
+
+    expect(() => scanZstdFrames(frame, Number.POSITIVE_INFINITY, { start: frame.length + 1 }))
+      .toThrow(new RangeError(`ZstdScanOptions.start must be an integer within 0..${frame.length}, got ${frame.length + 1}`))
+  })
+
+  it('accepts a scan start at the buffer end as an empty remainder', async () => {
+    const frame = await compressZstdFrame('{"type":"session"}\n')
+
+    expect(scanZstdFrames(frame, Number.POSITIVE_INFINITY, { start: frame.length })).toEqual({ frames: [] })
+  })
+
+  it('consumes skippable frames only when the scan allows them', async () => {
+    const body = Buffer.from('user data')
+    const header = Buffer.alloc(8)
+    header.writeUInt32LE(0x184D2A50, 0)
+    header.writeUInt32LE(body.length, 4)
+    const skippable = Buffer.concat([header, body])
+    const frame = await compressZstdFrame('{"type":"session"}\n')
+    const stream = Buffer.concat([skippable, frame])
+
+    expect(() => scanZstdFrames(stream)).toThrow(/invalid frame magic at byte 0/)
+    expect(scanZstdFrames(stream, Number.POSITIVE_INFINITY, { allowSkippable: true })).toEqual({
+      frames: [{ start: skippable.length, end: stream.length }],
+    })
+    expect(scanZstdFrames(skippable, Number.POSITIVE_INFINITY, { allowSkippable: true })).toEqual({ frames: [] })
+  })
+
+  it('treats a skippable frame cut short as an incomplete final frame', () => {
+    const header = Buffer.alloc(8)
+    header.writeUInt32LE(0x184D2A5F, 0)
+    header.writeUInt32LE(16, 4)
+    const options = { allowSkippable: true }
+
+    // Header itself interrupted: neither the magic nor the body length is complete.
+    expect(scanZstdFrames(header.subarray(0, 6), Number.POSITIVE_INFINITY, options))
+      .toEqual({ frames: [], tornStart: 0 })
+    // Declared body runs past the bytes present.
+    expect(scanZstdFrames(Buffer.concat([header, Buffer.alloc(8)]), Number.POSITIVE_INFINITY, options))
+      .toEqual({ frames: [], tornStart: 0 })
+  })
+
+  it('recognizes the sixteen skippable-frame magic values and nothing beside them', () => {
+    expect(isSkippableFrameMagic(0x184D2A4F)).toBe(false)
+    expect(isSkippableFrameMagic(0x184D2A50)).toBe(true)
+    expect(isSkippableFrameMagic(0x184D2A5F)).toBe(true)
+    expect(isSkippableFrameMagic(0x184D2A60)).toBe(false)
   })
 
   it('covers standard header variants, RLE blocks, multiple blocks, and checksums', () => {

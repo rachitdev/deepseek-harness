@@ -163,10 +163,14 @@ it('keeps every recorded session owned, pinned, redacted, and header-scrubbed', 
       expect(promptSource, `${key}: system-prompt source`).toBeDefined()
       expect(schemaSource, `${key}: tool-schema source`).toBeDefined()
       expect(existsSync(join((promptSource as Scenario).dir, 'system-prompt.expected.md')), `${key}: system-prompt sidecar`).toBe(true)
-      expect(existsSync(join((schemaSource as Scenario).dir, 'tool-schemas.expected.json')), `${key}: tool-schema sidecar`).toBe(true)
+      // A pinning scenario owns its pin, or borrows the declared schema
+      // source's pin when it emits that class's surface unchanged.
+      const localPin = existsSync(join(dir, 'tool-pins.expected.json'))
+      const sourcePin = existsSync(join((schemaSource as Scenario).dir, 'tool-pins.expected.json'))
+      expect(localPin || sourcePin, `${key}: tool-pins sidecar`).toBe(true)
       for (const [field, source] of [
         ['system-prompt.expected.md', promptSource],
-        ['tool-schemas.expected.json', schemaSource],
+        ['tool-pins.expected.json', schemaSource],
       ] as const) {
         const local = join(dir, field)
         if (!existsSync(local) || !(await lstat(local)).isSymbolicLink()) continue

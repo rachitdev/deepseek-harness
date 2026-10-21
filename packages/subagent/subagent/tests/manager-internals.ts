@@ -21,6 +21,11 @@ export function managerState(ctx: Context) {
   }
 }
 
+/** Read the process-local delegation facts of every child this manager still tracks. */
+export function delegationFactsState(ctx: Context) {
+  return subagentManager(ctx)['delegations']
+}
+
 /** Remove only the map entry, leaving its Agent live for collision coverage. */
 export function dropActivation(ctx: Context, childId: SessionId): void {
   managerState(ctx).resident.delete(childId)

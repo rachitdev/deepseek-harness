@@ -101,6 +101,55 @@ export class SessionPersistenceCorruptionError extends Error {
   }
 }
 
+/** Structural damage the JSONL session reader detects in one stored log. */
+export type SessionLogCorruptionKind =
+  | 'torn-frame'
+  | 'invalid-json'
+  | 'not-object'
+  | 'no-header'
+  | 'prefix-short'
+  | 'unrecognized-container'
+  | 'invalid-container'
+
+/** Where a structural session-log check failed. */
+export interface SessionLogDamage {
+  /** Byte offset of frame, container, or extent damage. */
+  readonly offset?: number
+  /** 1-based line number of record damage. */
+  readonly line?: number
+  /**
+   * Whether the damaged record is the unterminated final line: a write that was
+   * in progress rather than damage inside the committed prefix. Absent for
+   * every other kind.
+   */
+  readonly trailing?: boolean
+}
+
+/**
+ * One stored session log is structurally damaged: a frame ends inside its own
+ * bytes, a frame breaks Zstandard frame structure at its own offset, a record is
+ * not a JSON object, the first record is not a session header, a requested
+ * plaintext prefix is longer than the log, or the bytes are neither a Zstandard
+ * stream nor JSONL. Distinct from {@link SessionFormatUnsupportedError} —
+ * damaged bytes are never a version question, and no reader can interpret them.
+ */
+export class SessionLogCorruptError extends Error {
+  /**
+   * @param kind - which structural check failed.
+   * @param detail - what the check found, without the stable prefix.
+   * @param damage - where the check failed: a byte offset, a 1-based line
+   *   number, and whether that record is an unterminated final line.
+   */
+  constructor(
+    readonly kind: SessionLogCorruptionKind,
+    detail: string,
+    readonly damage: SessionLogDamage = {},
+  ) {
+    super(`corrupt session log: ${detail}`)
+    this.name = 'SessionLogCorruptError'
+  }
+}
+
 /**
  * The stored log is intact but this runtime cannot faithfully interpret it:
  * the header carries an unsupported format version, or an event's type is

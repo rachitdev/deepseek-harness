@@ -5,3 +5,5 @@ composition: web-auto-review
 recording: authored
 header:
   class: web-default
+capability: escalation
+permission: auto

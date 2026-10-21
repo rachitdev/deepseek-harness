@@ -58,10 +58,9 @@ describe('decision prompt rendering', () => {
   })
 
   it('refuses an unknown question type', () => {
-    expect(() => renderDecisionPrompt({
-      state: 's',
-      questions: { odd: { type: 'ranking', instructions: 'i' } },
-    } as unknown as DecisionRequest))
+    const odd = { state: 's', questions: { odd: { type: 'ranking', instructions: 'i' } } } as const
+    // @ts-expect-error -- a request built from runtime data can carry a question type the union does not declare.
+    expect(() => renderDecisionPrompt(odd))
       .toThrow(expect.objectContaining({ code: 'DECISION_PROVIDER_ERROR' }) as Error)
   })
 })
@@ -134,11 +133,10 @@ describe('decision response parsing', () => {
   })
 
   it('refuses to validate an answer for an unknown question type', () => {
-    const odd = {
-      state: 's',
-      questions: { odd: { type: 'ranking', instructions: 'i' } },
-    } as unknown as DecisionRequest
-    expect(() => parseDecisionResponse(JSON.stringify({ odd: { probability: 1 } }), odd))
+    const reply = JSON.stringify({ odd: { probability: 1 } })
+    const odd = { state: 's', questions: { odd: { type: 'ranking', instructions: 'i' } } } as const
+    // @ts-expect-error -- a request built from runtime data can carry a question type the union does not declare.
+    expect(() => parseDecisionResponse(reply, odd))
       .toThrow(expect.objectContaining({ code: 'DECISION_PROVIDER_ERROR' }) as Error)
   })
 

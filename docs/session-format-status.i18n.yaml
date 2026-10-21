@@ -9,11 +9,14 @@
   en: 702f6c39cc29beca
   zh: 75cd72d886640bb5
 /session-format-version-and-release-status/table-of-contents:
-  en: 4b723de0471eae1b
-  zh: b308bf89ea47ae05
+  en: 0deb08eb2173e894
+  zh: 90119aea6161ba17
 /session-format-version-and-release-status/sources-of-truth:
-  en: 02d18ba8a66cfb10
-  zh: 54b753bbcb8f8a9e
+  en: 2de56858eff81958
+  zh: bf6f7e6cb3a0b00e
+/session-format-version-and-release-status/stored-log-framing:
+  en: e5fd850ac2517e3b
+  zh: d1595036c4551ca1
 /session-format-version-and-release-status/finalization-record:
   en: c84a45a0489804c9
   zh: 4f4474a678c90ffe

@@ -7,3 +7,5 @@ header:
   class: web-default
 replay:
   override: true
+permission: workspace-write
+capability: escalation

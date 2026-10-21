@@ -1,0 +1,40 @@
+{
+  "version": 2,
+  "class": "session/computer-use-cua-driver-native/computer-use-cua-driver-native",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "cua_driver_native__check_permissions",
+        "cua_driver_native__click",
+        "cua_driver_native__get_window_state",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:3c90d0f83ddf754f34f340d1340bdbec8e2fca139fcda541cecb8fbf36749a30"
+    }
+  ]
+}

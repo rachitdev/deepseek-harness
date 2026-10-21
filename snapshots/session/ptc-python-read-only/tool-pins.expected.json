@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "class": "session/ptc-python/ptc-python-escalation",
+  "capability": "escalation",
+  "sets": [
+    {
+      "tools": [
+        "run_code"
+      ],
+      "digest": "sha256:e5f8a8049fd5cb622bc6902a69385841555dd10b608a92a520a1147ddb8ae2b6"
+    }
+  ]
+}

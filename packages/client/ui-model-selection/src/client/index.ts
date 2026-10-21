@@ -186,7 +186,8 @@ export function apply(ctx: ClientContext): void {
         'desktop:linux': { code: 'KeyM', modifiers: ['primary', 'shift'] },
         'web:macos': { code: 'KeyM', modifiers: ['primary', 'shift'] },
         'web:windows': { code: 'KeyM', modifiers: ['primary', 'shift'] },
-        'web:linux': { code: 'KeyM', modifiers: ['primary', 'shift'] },
+        // Linux web admits only a small set of Web combinations, and none is free for this
+        // command, so it stays unbound there and the shortcut settings own any user binding.
       },
       regions: ['page', 'editable'], modals: [],
       resolve: ({ target }) => {

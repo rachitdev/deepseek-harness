@@ -435,8 +435,6 @@ export function presentFetchResult(args: { url: string }, result: ToolResult): W
   }
 }
 
-/** Decision-backed guard applied to extracted text before that text becomes model-visible. */
-
 function withheldFetch(
   result: { url: string; statusCode: number },
   content: string,
@@ -448,6 +446,20 @@ function withheldFetch(
     truncated: true,
   }
 }
+
+/**
+ * Screen the text extracted from a fetched body before `web_fetch` returns it.
+ *
+ * The tool consults it with the final URL, the rendered text, and the call's abort signal. A
+ * `'review'` or `'block'` verdict withholds that text, and so does a rejection other than the
+ * caller's own cancellation, which propagates; `withheldFetch` replaces the body either way.
+ * `guardFetchedContent` from `@deepseek-ai/dsh-decision-consumers` is the shipped
+ * implementation, and any replacement carries the same withholding obligation.
+ * @param url - final URL after redirects, for provider-side policy.
+ * @param content - extracted text about to become model-visible.
+ * @param signal - the tool call's cancellation.
+ * @returns the hazard verdict the tool acts on; anything but `'pass'` withholds the body.
+ */
 export type FetchContentGuard = (
   url: string,
   content: string,

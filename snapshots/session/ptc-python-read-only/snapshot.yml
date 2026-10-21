@@ -4,7 +4,10 @@ profile: headless
 composition: ptc-python
 recording: authored
 header:
-  class: ptc-python
+  class: ptc-python-escalation
+  pin: true
+  systemPromptSource: ptc-python-turn
+  toolSchemasSource: ptc-python-turn
 platform: posix
 permission: read-only
 environment:

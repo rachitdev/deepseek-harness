@@ -39,9 +39,10 @@ import {
   captureExpectedWorkspaceSnapshot,
   captureWorkspaceSnapshot,
   type CaptureWorkspaceSnapshotOptions,
+  assertCapabilityApproval,
   assertSessionFixtureVersion,
+  assertToolPins,
   formatSystemPromptSnapshot,
-  formatToolSchemasSnapshot,
   normalizedSystemPrompts,
   normalizedToolSchemas,
   parseSnapshotManifest,
@@ -54,8 +55,14 @@ import {
   sessionFixtureName,
   stabilizeFixtureMessageIds,
   stabilizeRefreshLog,
+  CAPABILITY_APPROVAL,
+  CAPABILITY_PERMISSION_MODE,
+  readHeaderPin,
+  recordedApprovalPolicy,
+  writeHeaderPin,
   writesCurrentSessionFixtures,
   type NormalizeContext,
+  type SnapshotCapability,
 } from '@deepseek-ai/dsh-session-snapshot'
 import type { Profile, ProfileContext } from '@deepseek-ai/dsh-app-boot'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
@@ -79,6 +86,7 @@ import {
   type SessionHeader,
 } from '@deepseek-ai/dsh-session'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import type { SessionLogRecord } from '@deepseek-ai/dsh-session-persistence-jsonl'
 // Empty type imports carry the webServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-agent'
@@ -310,6 +318,11 @@ export interface LaunchOptions {
   openInAppEnvironment?: LaunchEnvironmentSnapshot
   /** Compare the replayed root Session; `read-only` also forbids refresh writes to a borrowed fixture. */
   compareReplaySession?: boolean | 'read-only'
+  /**
+   * Sandbox and approval capability the boot must mount; omitted derives it from the
+   * replay fixture's manifest, so a case cannot silently run under the host's policy.
+   */
+  capability?: SnapshotCapability
   /** Fixed JSON-quoted workspace path length for compaction estimates; omitted values use the ordinary prefix. */
   workspacePathLength?: number
   /**
@@ -468,6 +481,107 @@ async function cleanupScaffoldWorld(ctx: Context, workspaceCwd: string, persiste
   return failures
 }
 
+/** Session events whose presence in a recording means the recording chose a capability. */
+const RECORDED_POLICY_EVENTS: ReadonlySet<string> = new Set(['approval/policy', 'permission/preset', 'sandbox/mode'])
+
+/**
+ * Resolve the sandbox mode a case boots under, so the host environment never chooses it.
+ *
+ * A case that declares nothing boots under the composition default: the caller removes any
+ * ambient `DSH_PERMISSION_MODE` for it. Such a case may not borrow a recording that chose a
+ * capability, because replaying it under another one compares the wrong header. When the
+ * manifest does declare, the recording's first state — the one the case boots in, before any
+ * takeover switch — must agree with it: a mismatch means the case would pin one policy while
+ * replaying another, which is exactly the drift this lane removes.
+ * @param fixturePath - replay fixture the case borrows, or undefined for a fixture-less case.
+ * @returns the sandbox mode to pin, or undefined for the composition default.
+ * @throws Error naming the manifest when the declaration and the recording disagree.
+ */
+async function declaredPermissionMode(fixturePath: string | undefined): Promise<string | undefined> {
+  if (fixturePath === undefined) return undefined
+  const manifestPath = join(dirname(fixturePath), 'snapshot.yml')
+  if (!existsSync(manifestPath)) return undefined
+  return bootPermissionMode(await readFile(manifestPath, 'utf8'), manifestPath, basename(fixturePath),
+    existsSync(fixturePath) ? await readFile(fixturePath, 'utf8') : undefined)
+}
+
+/**
+ * Decide the boot mode from one manifest and the recording it borrows.
+ *
+ * The declaration is what governs the environment: `sandbox` names the mode outright, and a
+ * manifest that states only `permission` or `capability` still resolves one here, so the lane
+ * never falls back to the ambient value by accident.
+ * @param manifestText - the case manifest's text.
+ * @param manifestPath - its path, used in messages.
+ * @param fixtureName - the borrowed recording's file name, used in messages.
+ * @param fixtureText - the recording's text, or undefined when the case replays no recording.
+ * @returns the sandbox mode the case declares, or undefined when it declares none.
+ * @throws Error when the declaration and the recording's boot state disagree.
+ */
+export function bootPermissionMode(manifestText: string, manifestPath: string, fixtureName: string,
+  fixtureText: string | undefined): string | undefined {
+  const declared = /^(?:permission|capability|sandbox):/mu.test(manifestText)
+  if (!declared && fixtureText === undefined) return undefined
+  const events = fixtureText === undefined ? [] : parseSessionLog(fixtureText)
+  // The replay parser types only the events it projects, so read a policy event's own payload.
+  const values = (type: string, name: string): string[] => events.flatMap((event) => {
+    if ((event.type as string) !== type) return []
+    const value = (event as { readonly data?: Record<string, unknown> }).data?.[name]
+    return typeof value === 'string' ? [value] : []
+  })
+  // The first recorded value is the state the case boots in; a takeover case switches the preset,
+  // the mode, or the policy afterwards, and those switches are the scenario's own narrative.
+  const boots = (type: string, name: string): string | undefined => values(type, name)[0]
+  if (!declared) {
+    const recorded = [...RECORDED_POLICY_EVENTS].find((type) => {
+      const field = type === 'permission/preset' ? 'preset' : type === 'sandbox/mode' ? 'mode' : 'policy'
+      return values(type, field).length > 0
+    })
+    if (recorded === undefined) return undefined
+    throw new Error(`${manifestPath}: ${fixtureName} records ${recorded}; declare the case's `
+      + '`permission:` (or `capability:`) so the host environment cannot choose it')
+  }
+  const manifest = parseSnapshotManifest(manifestText, manifestPath)
+  const recordedPreset = boots('permission/preset', 'preset')
+  if (manifest.permission !== undefined && recordedPreset !== undefined && recordedPreset !== manifest.permission) {
+    throw new Error(`${manifestPath}: declares permission "${manifest.permission}" but ${fixtureName} `
+      + `records "${recordedPreset}"`)
+  }
+  const recordedMode = boots('sandbox/mode', 'mode')
+  if (recordedMode !== undefined && recordedMode !== manifest.sandbox) {
+    throw new Error(`${manifestPath}: declares sandbox "${manifest.sandbox}" but ${fixtureName} `
+      + `records "${recordedMode}"`)
+  }
+  // The capability states the approval axis, so the boot policy is what it must match; a takeover
+  // fixture is judged by the policy it opens with, exactly as the mode and preset are.
+  const bootApproval = boots('approval/policy', 'policy')
+  if (bootApproval !== undefined && bootApproval !== CAPABILITY_APPROVAL[manifest.capability]) {
+    throw new Error(`${manifestPath}: declares capability "${manifest.capability}" but `
+      + `${fixtureName} boots with approval "${bootApproval}"`)
+  }
+  return manifest.sandbox
+}
+
+/**
+ * Refuse a providers-only replay fixture that does not open with a session header.
+ *
+ * The consumption check is skipped in this mode, so a fixture without a header
+ * row must not mount the provider catalog silently. The reader owns the framing,
+ * which is why a Zstandard container is accepted here; recorded projection
+ * tokens keep the header out of reach of the format validator, so the row type
+ * is what this mode asserts.
+ * @param fixtureBytes - the replay fixture exactly as stored, still framed.
+ * @returns the decoded records, so a caller checks the payload from the same decode.
+ * @throws SessionLogCorruptError when the framing itself is damaged.
+ */
+export async function assertProvidersOnlyFixture(fixtureBytes: Buffer): Promise<readonly SessionLogRecord[]> {
+  const records = await JsonlSessionPersistence.decodeSessionLog(fixtureBytes)
+  if (records[0]['type'] !== 'session') {
+    throw new Error('replayProvidersOnly fixture must open with a session header row')
+  }
+  return records
+}
+
 /**
  * Boot the real web composition under the current snapshot mode.
  * @param options - replay fixture selection and pacing.
@@ -488,6 +602,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ? undefined
     : await Promise.all(options.replayChildFixtures.map(path => selectedSessionFixture(path)))
   const compareReplaySession = options.compareReplaySession ?? await ownsReplayFixture(replayFixture)
+  const pinnedPermissionMode = options.capability === undefined
+    ? await declaredPermissionMode(replayFixture)
+    : CAPABILITY_PERMISSION_MODE[options.capability]
   const publicMount = options.publicMount
   // Chromium maps *.localhost to loopback without a resolver.
   const publicHost = publicMount === undefined ? undefined : 'public.localhost'
@@ -540,24 +657,34 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // the resolved harness home so a scaffold sharing another's home — the
   // cross-port persistence scenario — pins the same roots the settings and
   // credentials rows were configured with.
-  const skillRootEnvironment = {
+  // Skill discovery is model-visible input, and the composed rows resolve it from the
+  // environment. The sandbox mode is pinned the same way: the shipped compositions
+  // derive the approval policy and the mutating tools' `sandbox_permissions` /
+  // `justification` parameters from it, so the host's ambient policy must not choose
+  // the capability a case pins.
+  const pinnedEnvironment: Record<string, string | undefined> = {
     DSH_HOME: harnessHome,
     DSH_AGENTS_HOME: join(workspaceCwd, '.agents-home'),
     DSH_BUNDLED_SKILL_DIR: join(workspaceCwd, '.bundled-skills'),
+    // Undefined removes an ambient value, so an undeclared case boots under the composition default.
+    DSH_PERMISSION_MODE: pinnedPermissionMode,
   }
-  const originalSkillRootEnvironment = Object.fromEntries(
-    Object.keys(skillRootEnvironment).map(key => [key, process.env[key]]),
+  const originalPinnedEnvironment = Object.fromEntries(
+    Object.keys(pinnedEnvironment).map(key => [key, process.env[key]]),
   )
-  let skillRootEnvironmentRestored = false
+  let pinnedEnvironmentRestored = false
   const restoreSkillRootEnvironment = (): void => {
-    if (skillRootEnvironmentRestored) return
-    skillRootEnvironmentRestored = true
-    for (const [key, value] of Object.entries(originalSkillRootEnvironment)) {
+    if (pinnedEnvironmentRestored) return
+    pinnedEnvironmentRestored = true
+    for (const [key, value] of Object.entries(originalPinnedEnvironment)) {
       if (value === undefined) Reflect.deleteProperty(process.env, key)
       else process.env[key] = value
     }
   }
-  Object.assign(process.env, skillRootEnvironment)
+  for (const [key, value] of Object.entries(pinnedEnvironment)) {
+    if (value === undefined) Reflect.deleteProperty(process.env, key)
+    else process.env[key] = value
+  }
   let persistenceRoot: string
   try {
     persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))
@@ -858,25 +985,15 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       if (replayFixture === undefined) {
         throw new Error('replayProvidersOnly requires replayFixture (its file supplies the header)')
       }
-      const fixtureText = readFileSync(replayFixture, 'utf8')
+      // Framed bytes, not text: a Zstandard container never survives a UTF-8 round-trip.
+      const fixtureBytes = readFileSync(replayFixture)
       // The consumption check is skipped for this mode, so no script source
       // may carry callable entries: reject override/child sources outright
       // and any call-bearing fixture.
       if (options.replayOverride !== undefined || replayChildFixtures !== undefined) {
         throw new Error('replayProvidersOnly cannot combine with replayOverride or replayChildFixtures')
       }
-      // A fixture without a session header row must not mount the catalog
-      // silently: the consumption-skip assumes the header-only shape.
-      let headerType: unknown
-      try {
-        headerType = (JSON.parse(fixtureText.trimStart().split('\n', 1)[0] ?? '') as { type?: unknown }).type
-      } catch {
-        headerType = undefined
-      }
-      if (headerType !== 'session') {
-        throw new Error('replayProvidersOnly fixture must open with a session header row')
-      }
-      const recorded = parseSessionLog(fixtureText)
+      const recorded = await assertProvidersOnlyFixture(fixtureBytes)
       const hasModelCall = recorded.some(event => (
         event.type === 'assistant/message' || event.type === 'assistant/attempt'
           || event.type === 'request/header' || event.type === 'tool/call'
@@ -1250,14 +1367,29 @@ async function assertReplaySession(
   const prompts = normalizedSystemPrompts(actual, actualContext).map(normalizePrompt)
   const schemas = normalizedToolSchemas(actual, actualContext)
   const promptPath = join(fixtureDir, 'system-prompt.expected.md')
-  const schemaPath = join(fixtureDir, 'tool-schemas.expected.json')
   const promptSnapshot = formatSystemPromptSnapshot(prompts[0] as string, prompts.slice(1))
-  const schemaSnapshot = formatToolSchemasSnapshot(schemas[0] as unknown[], schemas.slice(1))
+  const headerClass = manifest.header.class
+  const pinLocation = { snapshotsDir: join(REPO_ROOT, 'snapshots', 'web'), ownerDir: fixtureDir, headerClass }
   if (mode === 'refresh') {
-    await Promise.all([writeFile(promptPath, promptSnapshot), writeFile(schemaPath, schemaSnapshot)])
+    await Promise.all([
+      writeFile(promptPath, promptSnapshot),
+      writeHeaderPin(pinLocation, manifest.capability, schemas, process.env.DSH_SNAPSHOT_CATALOG_PARTS),
+    ])
   }
   expect(promptSnapshot, `${fixturePath}: system-prompt pin`).toBe(await readFile(promptPath, 'utf8'))
-  expect(schemaSnapshot, `${fixturePath}: tool-schema pin`).toBe(await readFile(schemaPath, 'utf8'))
+  // A refresh run writes the pin and its catalog fragment, so the committed
+  // catalog cannot agree with it yet; the generator merges the fragment next.
+  if (mode === 'refresh') return
+  // The pin names its own catalog class, so a class borrowed from another suite
+  // keeps that suite's namespace.
+  const { pins, catalog } = await readHeaderPin(fixtureDir, join(REPO_ROOT, 'docs', 'tool-catalog.json'))
+  expect(pins.class.split('/').at(-1), `${fixturePath}: pin class`).toBe(headerClass)
+  // The manifest declares the capability its composition mounts; the pin records
+  // what the class was harvested under, so a scenario that changes one without
+  // the other is a declaration the run does not honour.
+  expect(pins.capability, `${fixturePath}: declared capability`).toBe(manifest.capability)
+  assertToolPins(schemas, { label: `${fixturePath}: tool-schema pin`, className: pins.class, pins, catalog })
+  assertCapabilityApproval(manifest.capability, recordedApprovalPolicy(actual), `${fixturePath}: capability`)
 }
 
 /**

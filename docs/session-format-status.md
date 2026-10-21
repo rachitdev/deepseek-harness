@@ -9,6 +9,7 @@ Use this reference to distinguish the checkout writer, the accepted compatibilit
 ## Table of Contents
 
 - [Sources of truth](#sources-of-truth)
+- [Stored-log framing](#stored-log-framing)
 - [Finalization record](#finalization-record)
 - [Release record](#release-record)
 - [Updating the record](#updating-the-record)
@@ -24,6 +25,13 @@ Use this reference to distinguish the checkout writer, the accepted compatibilit
 An alpha, beta, or release-candidate product publication establishes released Session-format obligations. GitHub’s prerelease flag does not make persisted user data disposable. A missing release record is not evidence of non-publication. The [versioning and authority decision](../.agents/notes/implemented/architecture/2026-08-10-session-log-version-mechanism.md) owns compatibility decisions; [released-format migration](../.agents/notes/implemented/architecture/2026-08-31-released-session-format-migrations.md) owns immutable generations and adjacent conversion.
 
 The [format references](persistence-changes/historical-formats/README.md) document every integer from zero through the checkout writer, with historical schemas and the existing current catalog.
+
+<a id="stored-log-framing"></a>
+## Stored-log framing
+
+A committed generation is newline-delimited JSON: one record per line, and line one is the `type: 'session'` header carrying the format version. The Zstandard container holds concatenated independently decodable frames, so one log may hold any number of frames and a record may cross a frame boundary. Skippable frames are valid container members: the reader consumes their bodies unread instead of reporting them as damage. A log is therefore neither a single JSON value nor a single decompressor call; the [package README](../packages/session/session-persistence-jsonl/README.md#understand-the-implementation) owns the frame layout.
+
+`readSessionLog` in [the JSONL persistence package](../packages/session/session-persistence-jsonl/src/reader.ts) is the supported access path for stored log bytes. It decodes every frame, splits the records, and validates the first record against `SESSION_FORMAT_VERSION` or the historical codec for the version that record names. Callers select a stored log by reading it through that function instead of decompressing and framing the container themselves. Frame damage rejects as `SessionLogCorruptError`: `unrecognized-container` when the leading byte opens neither container, and `invalid-container` with `damage.offset` when a frame's magic, header, or block structure breaks Zstandard at any position. A plaintext prefix read through `readSessionLogPrefix` stops at the frame that covers the prefix, so damage past it is not that read's evidence, while a whole-log read reports any container damage it finds.
 
 <a id="finalization-record"></a>
 ## Finalization record

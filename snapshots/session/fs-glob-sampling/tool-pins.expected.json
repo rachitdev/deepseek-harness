@@ -1,0 +1,30 @@
+{
+  "version": 2,
+  "class": "session/fs-search/fs-search",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "edit",
+        "exit_plan_mode",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "list_agents",
+        "read",
+        "read_image",
+        "send_message",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:0f4ded887786bb46ee179eaccb5e8ef9c389ae7a9eb9451d3bab050c3968901f"
+    }
+  ]
+}

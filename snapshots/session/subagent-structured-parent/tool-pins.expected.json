@@ -1,0 +1,38 @@
+{
+  "version": 2,
+  "class": "session/subagent-structured-parent/subagent-structured-parent",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "subagent_structured",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:a94c0c6b9f91c5c382385bf891d44e4568212c1c2b26f3c5f81a030a5870f182"
+    }
+  ]
+}

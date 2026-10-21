@@ -6,3 +6,5 @@ recording: live
 header:
   class: web-ptc
   pin: true
+permission: workspace-write
+capability: escalation

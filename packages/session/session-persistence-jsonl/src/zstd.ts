@@ -9,10 +9,13 @@ import {
   constants, zstdCompress, zstdDecompress, type ZstdOptions,
 } from 'node:zlib'
 import { promisify } from 'node:util'
+import { SessionLogCorruptError } from '@deepseek-ai/dsh-session-persistence'
 import { NodePrivateZstdFrameDecoder } from './zstd-private-decoder.ts'
 import { PublicZstdFrameDecoder } from './zstd-public-decoder.ts'
 
 const ZSTD_MAGIC = 0xFD2FB528
+const ZSTD_SKIPPABLE_MAGIC_MIN = 0x184D2A50
+const ZSTD_SKIPPABLE_MAGIC_MAX = 0x184D2A5F
 const zstdCompressAsync = promisify(zstdCompress)
 const zstdDecompressAsync = promisify(zstdDecompress)
 const CHECKSUM_OPTIONS: ZstdOptions = {
@@ -30,6 +33,24 @@ export interface ZstdFrameRange {
   end: number
 }
 
+/** Structural scan options for a concatenated Zstandard stream. */
+export interface ZstdScanOptions {
+  /**
+   * Consume RFC 8878 skippable frames as container members and omit them from
+   * `frames`, instead of rejecting their magic. A skippable frame carries user
+   * data, never compressed plaintext, so a decoder has nothing to decode.
+   */
+  readonly allowSkippable?: boolean
+  /**
+   * First byte offset to scan, for a caller continuing after a frame it already
+   * decoded. Every reported range, torn start, and failure offset stays absolute
+   * in `buffer`. Must be an integer in `0..buffer.length`; a value outside that
+   * range throws `RangeError`, because it is a caller error rather than damage
+   * in the log.
+   */
+  readonly start?: number
+}
+
 /** Structural scan result for a concatenated Zstandard stream. */
 export interface ZstdFrameScan {
   /** Complete frames in file order. */
@@ -39,21 +60,62 @@ export interface ZstdFrameScan {
 }
 
 /**
+ * Report whether one frame magic opens a Zstandard skippable frame.
+ * @param magic - the 4-byte little-endian magic as read from the stream.
+ * @returns whether the magic is one of the sixteen skippable-frame values.
+ */
+export function isSkippableFrameMagic(magic: number): boolean {
+  return magic >= ZSTD_SKIPPABLE_MAGIC_MIN && magic <= ZSTD_SKIPPABLE_MAGIC_MAX
+}
+
+/**
+ * Resolve the offset a scan begins at, rejecting a caller error instead of
+ * reporting it as a container with no frames.
+ * @param buffer - the bytes about to be scanned, which bound the valid offsets.
+ * @param start - the requested first offset, when the caller supplied one.
+ * @returns the first offset to scan.
+ */
+function scanStart(buffer: Buffer, start: number | undefined): number {
+  if (start === undefined) return 0
+  if (!Number.isSafeInteger(start) || start < 0 || start > buffer.length) {
+    throw new RangeError(`ZstdScanOptions.start must be an integer within 0..${buffer.length}, got ${String(start)}`)
+  }
+  return start
+}
+
+/**
  * Locate complete frames without decompressing their blocks. Invalid complete
- * structure rejects; EOF inside the final frame returns its start for repair.
+ * structure rejects as `SessionLogCorruptError` with kind `invalid-container`
+ * and the byte offset of the failed check; EOF inside the final frame returns
+ * its start for repair.
  * @param buffer - complete bytes currently present in the session artifact.
  * @param maxFrames - optional complete-frame limit for metadata-only readers.
+ * @param options - scanning behavior: whether skippable frames are container members to consume, and where to resume.
  * @returns complete frame ranges and an optional incomplete-final-frame start.
+ * @throws RangeError when `options.start` is not an integer within the buffer.
  */
-export function scanZstdFrames(buffer: Buffer, maxFrames = Number.POSITIVE_INFINITY): ZstdFrameScan {
+export function scanZstdFrames(
+  buffer: Buffer,
+  maxFrames = Number.POSITIVE_INFINITY,
+  options: ZstdScanOptions = {},
+): ZstdFrameScan {
   const frames: ZstdFrameRange[] = []
-  let offset = 0
+  let offset = scanStart(buffer, options.start)
 
   while (offset < buffer.length) {
     const start = offset
     if (buffer.length - offset < 4) return { frames, tornStart: start }
-    if (buffer.readUInt32LE(offset) !== ZSTD_MAGIC) {
-      throw new Error(`corrupt Zstandard session log: invalid frame magic at byte ${offset}`)
+    const magic = buffer.readUInt32LE(offset)
+    if (options.allowSkippable === true && isSkippableFrameMagic(magic)) {
+      // Skippable frame: magic, a 4-byte body length, then that body.
+      if (buffer.length - offset < 8) return { frames, tornStart: start }
+      const bodyBytes = buffer.readUInt32LE(offset + 4)
+      if (buffer.length - offset - 8 < bodyBytes) return { frames, tornStart: start }
+      offset += 8 + bodyBytes
+      continue
+    }
+    if (magic !== ZSTD_MAGIC) {
+      throw new SessionLogCorruptError('invalid-container', `invalid frame magic at byte ${offset}`, { offset })
     }
     offset += 4
 
@@ -61,7 +123,9 @@ export function scanZstdFrames(buffer: Buffer, maxFrames = Number.POSITIVE_INFIN
     const descriptor = buffer.readUInt8(offset)
     offset += 1
     if ((descriptor & 0x18) !== 0) {
-      throw new Error(`corrupt Zstandard session log: reserved frame-header bit at byte ${offset - 1}`)
+      throw new SessionLogCorruptError('invalid-container', `reserved frame-header bit at byte ${offset - 1}`, {
+        offset: offset - 1,
+      })
     }
 
     const contentSizeFlag = descriptor >>> 6
@@ -84,7 +148,9 @@ export function scanZstdFrames(buffer: Buffer, maxFrames = Number.POSITIVE_INFIN
       const blockType = (blockHeader >>> 1) & 0x03
       const blockSize = blockHeader >>> 3
       if (blockType === 0x03) {
-        throw new Error(`corrupt Zstandard session log: reserved block type at byte ${offset - 3}`)
+        throw new SessionLogCorruptError('invalid-container', `reserved block type at byte ${offset - 3}`, {
+          offset: offset - 3,
+        })
       }
       const payloadBytes = blockType === 0x01 ? 1 : blockSize
       if (buffer.length - offset < payloadBytes) return { frames, tornStart: start }

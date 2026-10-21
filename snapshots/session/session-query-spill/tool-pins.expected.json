@@ -1,0 +1,42 @@
+{
+  "version": 2,
+  "class": "session/session-query/session-query",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "read",
+        "read_image",
+        "send_message",
+        "session_event_read",
+        "session_event_search",
+        "session_event_trace",
+        "session_search",
+        "session_trace",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:af3b83551d516e4a353aa57738b4df3618d2a0effd7f7c4f9ad44a86ec3bccf5"
+    }
+  ]
+}

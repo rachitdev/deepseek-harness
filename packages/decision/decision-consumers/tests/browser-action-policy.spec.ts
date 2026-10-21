@@ -1,4 +1,4 @@
-import type { DecisionRequest, DecisionResult } from '@deepseek-ai/dsh-decision'
+import type { DecisionChoiceAnswer, DecisionRequest, DecisionResult } from '@deepseek-ai/dsh-decision'
 import { describe, expect, it, vi } from 'vitest'
 import { decideBrowserAction } from '../src/browser-action-policy.ts'
 import type { BrowserActionPolicyRequest } from '../src/types.ts'
@@ -19,11 +19,11 @@ const REQUEST: BrowserActionPolicyRequest = {
 }
 
 /** Build a choice answer whose winning option carries `probability`. */
-function choice(winner: string, probability: number, others: readonly string[] = []) {
+function choice(winner: string, probability: number, others: readonly string[] = []): DecisionChoiceAnswer {
   const probabilities: Record<string, number> = { [winner]: probability }
   const rest = others.length > 0 ? (1 - probability) / others.length : 0
   for (const other of others) probabilities[other] = rest
-  return { type: 'choice' as const, choice: winner, probabilities }
+  return { type: 'choice', choice: winner, probabilities }
 }
 
 describe('decideBrowserAction', () => {
@@ -31,13 +31,13 @@ describe('decideBrowserAction', () => {
     let observed: DecisionRequest | undefined
     const mock = createMockDecisionService((request: DecisionRequest) => {
       observed = request
-      return Promise.resolve({
+      return Promise.resolve<DecisionResult>({
         providerId: 'jev',
         answers: {
           operation: choice('CLICK', 0.9, ['TYPE_TEXT', 'SELECT', 'DONE']),
           click_target: choice('3', 0.88, ['1', '2']),
         },
-      } as unknown as DecisionResult)
+      })
     })
 
     const decision = await decideBrowserAction(mock, REQUEST)
@@ -53,7 +53,7 @@ describe('decideBrowserAction', () => {
 
   it('reads only the target head matching the chosen operation', async () => {
     const mock = createMockDecisionService(() =>
-      Promise.resolve({
+      Promise.resolve<DecisionResult>({
         providerId: 'jev',
         answers: {
           operation: choice('TYPE_TEXT', 0.93, ['CLICK']),
@@ -61,7 +61,7 @@ describe('decideBrowserAction', () => {
           click_target: choice('3', 0.99, ['1', '2']),
           type_text_target: choice('2', 0.81, ['1']),
         },
-      } as unknown as DecisionResult),
+      }),
     )
 
     const decision = await decideBrowserAction(mock, REQUEST)
@@ -75,10 +75,10 @@ describe('decideBrowserAction', () => {
     let observed: DecisionRequest | undefined
     const mock = createMockDecisionService((request: DecisionRequest) => {
       observed = request
-      return Promise.resolve({
+      return Promise.resolve<DecisionResult>({
         providerId: 'jev',
         answers: { operation: choice('CLICK', 0.9, ['DONE']), click_target: choice('a', 0.9, ['b']) },
-      } as unknown as DecisionResult)
+      })
     })
 
     await decideBrowserAction(mock, {
@@ -100,10 +100,10 @@ describe('decideBrowserAction', () => {
     let observed: DecisionRequest | undefined
     const mock = createMockDecisionService((request: DecisionRequest) => {
       observed = request
-      return Promise.resolve({
+      return Promise.resolve<DecisionResult>({
         providerId: 'jev',
         answers: { operation: choice('SELECT', 0.84, ['CLICK']) },
-      } as unknown as DecisionResult)
+      })
     })
 
     const decision = await decideBrowserAction(mock, REQUEST)
@@ -116,10 +116,10 @@ describe('decideBrowserAction', () => {
 
   it('returns an untargeted operation with no target id', async () => {
     const mock = createMockDecisionService(() =>
-      Promise.resolve({
+      Promise.resolve<DecisionResult>({
         providerId: 'jev',
         answers: { operation: choice('DONE', 0.95, ['CLICK']) },
-      } as unknown as DecisionResult),
+      }),
     )
     const decision = await decideBrowserAction(mock, REQUEST)
     expect(decision.operation).toBe('DONE')
@@ -129,13 +129,13 @@ describe('decideBrowserAction', () => {
 
   it('marks a low-confidence target non-executable rather than acting on a guess', async () => {
     const mock = createMockDecisionService(() =>
-      Promise.resolve({
+      Promise.resolve<DecisionResult>({
         providerId: 'jev',
         answers: {
           operation: choice('CLICK', 0.9, ['DONE']),
           click_target: choice('3', 0.41, ['1', '2']),
         },
-      } as unknown as DecisionResult),
+      }),
     )
     const decision = await decideBrowserAction(mock, REQUEST)
     expect(decision.executable).toBe(false)
@@ -149,20 +149,20 @@ describe('decideBrowserAction', () => {
 
   it('fails when the chosen operation has no target answer', async () => {
     const mock = createMockDecisionService(() =>
-      Promise.resolve({
+      Promise.resolve<DecisionResult>({
         providerId: 'jev',
         answers: { operation: choice('CLICK', 0.9, ['DONE']) },
-      } as unknown as DecisionResult),
+      }),
     )
     await expect(decideBrowserAction(mock, REQUEST)).rejects.toThrow(/no target answer/)
   })
 
   it('forwards cancellation signal', async () => {
     const spy = vi.fn(() =>
-      Promise.resolve({
+      Promise.resolve<DecisionResult>({
         providerId: 'jev',
         answers: { operation: choice('DONE', 0.9, ['CLICK']) },
-      } as unknown as DecisionResult),
+      }),
     )
     const mock = createMockDecisionService(spy)
     const controller = new AbortController()

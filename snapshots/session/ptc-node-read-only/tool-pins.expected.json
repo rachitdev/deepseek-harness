@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "class": "session/ptc-node-read-only/ptc-node-read-only",
+  "capability": "escalation",
+  "sets": [
+    {
+      "tools": [
+        "run_code"
+      ],
+      "digest": "sha256:c0bee809272a1e2ad64a547ea3cb4dd4901e11f2bda1ac86885bc8dcb1707199"
+    }
+  ]
+}

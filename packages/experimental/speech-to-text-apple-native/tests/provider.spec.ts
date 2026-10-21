@@ -16,9 +16,12 @@ const state = vi.hoisted(() => ({
   connectFailure: false,
   waitForAbort: false,
   rawOutput: '',
+  clientLoads: 0,
+  transportLoads: 0,
 }))
 
-vi.mock('@modelcontextprotocol/client', () => ({
+// Each factory runs once per module load, so these counters count loads rather than uses.
+vi.mock('@modelcontextprotocol/client', () => (state.clientLoads += 1, {
   Client: class {
     onclose?: () => void
     async connect(): Promise<void> {
@@ -53,7 +56,7 @@ vi.mock('@modelcontextprotocol/client', () => ({
   },
 }))
 
-vi.mock('@modelcontextprotocol/client/stdio', () => ({
+vi.mock('@modelcontextprotocol/client/stdio', () => (state.transportLoads += 1, {
   StdioClientTransport: class {
     readonly dummy = true
     async close(): Promise<void> {
@@ -83,6 +86,20 @@ it('maps audio media types to matching file extensions', () => {
   expect(audioFileExtension('audio/mpeg')).toBe('mp3')
   expect(audioFileExtension('audio/caf')).toBe('caf')
   expect(audioFileExtension('audio/unknown')).toBe('wav')
+})
+
+it('registers nothing and loads no MCP client when the executable is absent', async () => {
+  const ctx = new Context()
+  try {
+    await ctx.plugin(SpeechToText, { defaultProvider: 'apple-native', language: 'en_IN' })
+    await ctx.plugin({ inject: ['speechToText'], apply: (inner: Context) => apply(inner, Config({
+      command: '/nonexistent/apple-native-mcp', providerId: 'apple-native', locales: ['en_IN'], timeoutMs: 120_000,
+    })) })
+    expect(ctx.get('speechToText')!.listProviders()).toEqual([])
+    // A browser Worker mounts this plugin to list its row: the CommonJS transport must stay unloaded there.
+    expect(state.clientLoads).toBe(0)
+    expect(state.transportLoads).toBe(0)
+  } finally { await ctx.fiber.dispose() }
 })
 
 it.skipIf(process.platform !== 'darwin')('transcribes only the selected locale, keeps a warm client, cleans up audio, and unregisters on unload', async () => {

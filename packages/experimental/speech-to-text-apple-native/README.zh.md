@@ -35,7 +35,7 @@ kind: "package-reference"
 <details>
 <summary>维护者信息 — 点击展开</summary>
 
-每次识别调用把音频写入仅所有者可访问的临时目录，文件名后缀由音频 MIME 类型解析得出（默认 WAV），并从保持复用的本地 MCP 客户端解析 `transcribe_file` 结果。连接失败时会关闭底层 transport 以免泄漏子进程。取消操作会关闭进程并在清理时等待其结束再删除音频文件。临时录音不是 Session 附件，也不会调用面向模型的 MCP 工具。选择不可用 Provider 时明确失败，不会回退。
+每次识别调用把音频写入仅所有者可访问的临时目录，文件名后缀由音频 MIME 类型解析得出（默认 WAV），并从保持复用的本地 MCP 客户端解析 `transcribe_file` 结果。连接失败时会关闭底层 transport 以免泄漏子进程。取消操作会关闭进程并在清理时等待其结束再删除音频文件。临时录音不是 Session 附件，也不会调用面向模型的 MCP 工具。选择不可用 Provider 时明确失败，不会回退。MCP 客户端模块在首次识别会话时加载，而不是在激活时加载：其 stdio transport 是 CommonJS 实现并会读取 Node 的 `global`，而浏览器 Worker 不安装该全局变量；未安装可执行文件的 Host 也不会走到该路径。
 
 </details>
 

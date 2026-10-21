@@ -1,0 +1,36 @@
+{
+  "version": 2,
+  "class": "session/office-authoring-checker/office-authoring-checker",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:246c520de4cbfa51f12d5d206225b62ad83ece3c66e55ba10f7d3b10ad5d29ac"
+    }
+  ]
+}

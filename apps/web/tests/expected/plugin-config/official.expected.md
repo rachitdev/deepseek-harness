@@ -28,7 +28,7 @@
     - switch "启用 智能体团队"
   - listitem:
     - button "查看 语音输入": 语音输入
-    - text: 实验性 在本机使用 SenseVoice 转写录音，首次使用需安装依赖。
+    - text: 实验性 使用 SenseVoice 或受支持 Mac 上的 Apple 设备端语音在本机转写录音。
     - switch "启用 语音输入"
   - listitem:
     - button "查看 自动授权审查": 自动授权审查

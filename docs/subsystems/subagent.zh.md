@@ -129,7 +129,7 @@ interface ResolvedSubagentStartRequest extends SubagentStartRequest {
 
 只有 spawn 支持独立的 `agentPreset`；省略选择与 fork 都继承父方的活跃组装。[子级 preset 规则](../../packages/subagent/subagent/README.zh.md#restoring-child-composition)定义显式选择、事件顺序和历史恢复行为。
 
-本地子代理拥有持久 Session，最多有一个在线 activation。Manager 预留身份和容量，通过后端准备子代理，并管理输入准入、冷恢复以及先子后父的释放顺序。activation 结果在资源释放和完成通知之后结算。释放操作单独报告清理失败，不会覆盖已捕获的结果。结构化结果提交会关闭该 activation 的输入；之后的冷恢复不会继承输出 schema。
+本地子代理拥有持久 Session，最多有一个在线 activation。Manager 预留身份和容量，通过后端准备子代理，并管理输入准入、冷恢复以及先子后父的释放顺序。activation 结果在资源释放和完成通知之后结算。释放操作单独报告清理失败，不会覆盖已捕获的结果。结构化结果提交会关闭该 activation 的输入；之后的冷恢复不会继承输出 schema。发布之前，Manager 会把父级当时解析出的 sandbox 模式（包括 preset 约束与部署默认值）连同 `approval/policy: never` 固定策略写入子级日志，因此子级绝不会比父级更宽，其权限范围也可仅凭自身日志重建。
 
 ```ts type-equiv
 /**
@@ -173,7 +173,7 @@ interface ContinuableCreateSpec {
 
 ## 消息与中断
 
-sendMessage 根据确切的在线发送者实例授权，仅允许相邻本地代理通信。运行中的子代理接收引导输入；不在线的可继续子代理从持久化恢复。外部执行拒绝后续消息。本地与外部执行都会通过父级结束通知自动回传最终文本、结构化结果、诊断和状态。本地子代理也可以通过 send_message 发送消息。caller 回传会抑制结束通知。drainDescendants 与 drainChildren 对本地和外部 activation 都等待所属任务清理完成。
+sendMessage 根据确切的在线发送者实例授权，仅允许相邻本地代理通信。运行中的子代理接收引导输入；不在线的可继续子代理从持久化恢复。外部执行拒绝后续消息。本地与外部执行都会通过父级结束通知自动回传最终文本、结构化结果、诊断和状态。本地子代理也可以通过 send_message 发送消息。caller 回传会抑制结束通知。被委派固定策略拒绝的请求，在父级投递的子级中会以 `source` 类型为 `subagent-delegation` 的 `user/message` 报告给父级——管理层保留该子级期间每个工具一次，且仅限该固定策略造成、且由本管理层写入的拒绝。drainDescendants 与 drainChildren 对本地和外部 activation 都等待所属任务清理完成。
 
 ```ts type-equiv
 /** Durable attribution for one model-authored message between Agents. */
@@ -202,6 +202,27 @@ interface SubagentSettledMessageSource {
   readonly summary: string
   /** Session id of the child that settled. */
   readonly senderSessionId: SessionId
+}
+```
+
+```ts type-equiv
+/**
+ * Durable attribution for the runtime's own account of a delegated child
+ * having an approval ask rejected automatically. A third kind, not
+ * {@link AgentMessageSource} (the child did not choose these words) and not
+ * {@link SubagentSettledMessageSource} (the child has not ended): it reports
+ * one refusal inside the scope the delegation fixed.
+ */
+interface SubagentDelegationNoticeSource {
+  readonly kind: 'subagent-delegation'
+  /** A runtime account shown without expanding the row (`notice` context form). */
+  readonly form: 'notice'
+  /** One-line account of the refused ask. */
+  readonly summary: string
+  /** Session id of the delegated child whose ask was refused. */
+  readonly childSessionId: SessionId
+  /** Tool whose operation the child asked to run. */
+  readonly toolName: string
 }
 ```
 

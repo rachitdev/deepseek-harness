@@ -27,6 +27,7 @@ import type {} from '@deepseek-ai/dsh-permission-presets'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import { delegationDepthOf } from './depth.ts'
 import { SubagentError } from './error.ts'
+import { createDelegationRejectionMessage } from './continuation-messages.ts'
 
 /** Thrown when starting a child would exceed the requested depth cap. */
 export class SubagentDepthError extends Error {
@@ -224,7 +225,12 @@ export interface DelegatedPolicyOverrides {
    * the child keeps it under the pinned `never` approval policy.
    */
   readonly permissionPreset: 'auto' | 'danger-full-access' | undefined
-  /** The parent session's explicit sandbox-mode override, or `undefined` without one. */
+  /**
+   * The parent session's effective sandbox mode, or `undefined` when no
+   * sandbox-policy service is composed. Resolved through that service, so a
+   * parent confined by the deployment default or by a preset is captured as
+   * confined as it actually runs.
+   */
   readonly sandboxMode: SandboxMode | undefined
   /**
    * `'never'` whenever the approval capability is composed, `undefined`
@@ -239,17 +245,20 @@ export interface DelegatedPolicyOverrides {
  * the child start's first await: a later parent switch belongs to the
  * parent's future, not to this child. Auto and Full access identities are
  * inherited only through the in-process DSH path so either can replace a stale
- * same-bundle fork value. Only the parent session's explicit sandbox override
- * is captured — never deployment defaults or one-shot grants — and the approval
- * policy is pinned to `'never'` regardless of the parent's own policy.
+ * same-bundle fork value. The sandbox mode is the parent's EFFECTIVE mode —
+ * resolved through the sandbox-policy service exactly as the parent's own tool
+ * calls resolve it, so a parent confined by a preset or by the deployment
+ * default confines its child too — while the approval policy is pinned to
+ * `'never'` regardless of the parent's own policy. One-shot grants are never
+ * captured: they belong to the parent's finished call.
  * @param parent - the delegating parent agent.
- * @returns the sandbox override (or `undefined` without one) and the approval pin.
+ * @returns the effective sandbox mode (or `undefined` without the service) and the approval pin.
  */
 export function captureDelegatedPolicyOverrides(parent: Agent): DelegatedPolicyOverrides {
   const preset = parent.ctx.get('permissionPresets')?.current(parent.session)
   return {
     permissionPreset: preset === 'auto' || preset === 'danger-full-access' ? preset : undefined,
-    sandboxMode: parent.ctx.get('sandboxPolicy')?.overrideOf(parent.session),
+    sandboxMode: parent.ctx.get('sandboxPolicy')?.resolve({ session: parent.session }).mode,
     approvalPolicy: parent.ctx.get('approval') === undefined ? undefined : 'never',
   }
 }
@@ -276,6 +285,95 @@ export function appendDelegatedPolicyOverrides(
   if (overrides.permissionPreset !== undefined) {
     childSession.append('permission/preset', { preset: overrides.permissionPreset })
   }
+}
+
+/**
+ * Map a decided approval request back to the tool its ask named. Every
+ * decision — granted, rejected, cancelled, or unavailable — consumes its ask,
+ * so the tracking stays bounded by in-flight asks rather than by all asks a
+ * residency ever made.
+ */
+export class PendingApprovalAsks {
+  private readonly names = new Map<string, string>()
+
+  /**
+   * Record one ask.
+   * @param id - the request id pairing this ask with its decision.
+   * @param toolName - the tool the ask is about.
+   */
+  asked(id: string, toolName: string): void {
+    this.names.set(id, toolName)
+  }
+
+  /**
+   * Consume the ask behind one decision.
+   * @param id - the decided request id.
+   * @returns the asked tool name, or `undefined` for an unpaired decision.
+   */
+  decide(id: string): string | undefined {
+    const toolName = this.names.get(id)
+    this.names.delete(id)
+    return toolName
+  }
+
+  /** How many asks still await a decision. */
+  get pending(): number {
+    return this.names.size
+  }
+}
+
+/** Per-child state the caller owns across one delegation-notice subscription. */
+export interface DelegationRejectionSubscription {
+  /**
+   * Whether the delegation-sourced `never` pin is the child's latest policy.
+   * The caller seeds it from its own creation-time knowledge and the observer
+   * writes every observed policy back here, so the retained fact tracks
+   * reality for the next residency instead of the creation-time value.
+   */
+  pinned: boolean
+  /**
+   * Tool names already reported for this child. The caller owns the set, so it
+   * outlives one residency epoch and a resume does not notify twice; it is
+   * dropped with the rest of the caller's record when the child is released.
+   */
+  readonly reported: Set<string>
+}
+
+/**
+ * Report each auto-rejected approval ask from a delegated child to its direct
+ * parent as one runtime notice, so a refusal the child cannot undo is visible
+ * where the scope was chosen. Reports under the delegation-sourced `'never'`
+ * pin only: a rejection under any other policy, or under a `never` the child
+ * switched to itself, belongs to whoever set or answered it. One notice per
+ * reported tool name keeps a retrying child quiet.
+ * @param child - the locally created delegated child to observe.
+ * @param subscription - the pin this residency began under and the tools already reported.
+ * @param deliver - delivery hook for the parent-visible message.
+ */
+export function observeDelegatedApprovalRejections(
+  child: Agent,
+  subscription: DelegationRejectionSubscription,
+  deliver: (message: ReturnType<typeof createDelegationRejectionMessage>) => void,
+): void {
+  if (child.ctx.get('approval') === undefined) return
+  const asks = new PendingApprovalAsks()
+  child.ctx.on('session/event', (session, event) => {
+    if (session !== child.session) return
+    if (event.type === 'approval/policy') {
+      subscription.pinned = event.data.policy === 'never' && event.data.source === 'delegation'
+      return
+    }
+    if (event.type === 'approval/asked') {
+      asks.asked(event.data.id, event.data.toolName)
+      return
+    }
+    if (event.type !== 'approval/decided') return
+    const toolName = asks.decide(event.data.id)
+    if (!subscription.pinned || event.data.outcome !== 'rejected' || toolName === undefined) return
+    if (subscription.reported.has(toolName)) return
+    deliver(createDelegationRejectionMessage(child.session.id, toolName))
+    subscription.reported.add(toolName)
+  })
 }
 
 /** Identity and lineage inputs shared by every in-process child creation. */

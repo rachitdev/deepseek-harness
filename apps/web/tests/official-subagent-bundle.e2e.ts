@@ -174,7 +174,7 @@ describe.skipIf(MODE === 'record')('web snapshot: Official native subagent bundl
 
   it.skipIf(MODE !== 'replay')('keeps the owned fixture artifacts closed', async () => {
     await assertFixtureInventory(DIR, [
-      'session.v4.jsonl', 'system-prompt.expected.md', 'tool-schemas.expected.json', 'ui.expected.md', 'workspace.expected',
+      'session.v4.jsonl', 'system-prompt.expected.md', 'tool-pins.expected.json', 'ui.expected.md', 'workspace.expected',
     ])
   })
 })

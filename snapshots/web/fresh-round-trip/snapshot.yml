@@ -6,3 +6,5 @@ recording: live
 header:
   class: web-default
   pin: true
+capability: escalation
+permission: workspace-write

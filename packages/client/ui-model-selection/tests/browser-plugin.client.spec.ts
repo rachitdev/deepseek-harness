@@ -22,6 +22,7 @@ import type { ModelSelectInjected } from '../src/client/slots.ts'
 import { apply, inject } from '../src/client/index.ts'
 import { en, zh } from '../src/client/locales.ts'
 import type { ShortcutCommand, ShortcutContext } from '@deepseek-ai/dsh-client-shortcuts/client'
+import { bindingIssue, normalizeBinding, resolveShortcutDefault } from '@deepseek-ai/dsh-client-shortcuts/protocol'
 
 const sid = (k: string): SessionId => k as SessionId
 
@@ -128,7 +129,17 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
   })
   const shortcuts = new Map<string, ShortcutCommand>()
   ctx.provide('shortcuts', {
+    // Registering through the real admission rule keeps this lane honest: a default the Web
+    // policy cannot deliver on any platform makes the shipped registry throw, so the bench
+    // fails here instead of only in the browser lane.
     register(command: ShortcutCommand) {
+      for (const runtime of ['desktop', 'web'] as const) {
+        for (const platform of ['macos', 'windows', 'linux'] as const) {
+          const candidate = resolveShortcutDefault(command, runtime, platform)
+          if (candidate === undefined) continue
+          expect(bindingIssue(normalizeBinding(candidate, platform), runtime, platform)).toBeNull()
+        }
+      }
       shortcuts.set(command.id, command)
       return () => { shortcuts.delete(command.id) }
     },
@@ -589,11 +600,20 @@ describe('model switch shortcut', () => {
   const press = (command: ShortcutCommand, target: Element | null): ReturnType<ShortcutCommand['resolve']> =>
     command.resolve({ region: 'editable', modal: null, target } satisfies ShortcutContext)
 
-  it('registers one rebindable command with a Cmd/Ctrl+Shift+M default in every profile, removed on disposal', async () => {
+  it('registers one rebindable command with a Cmd/Ctrl+Shift+M default wherever the platform admits it', async () => {
     const b = await bench('en')
     const command = b.shortcut()!
     expect(command.label()).toBe(en['shortcut.label'])
-    expect(Object.values(command.defaults)).toEqual(Array(6).fill({ code: 'KeyM', modifiers: ['primary', 'shift'] }))
+    expect(command.defaults).toEqual({
+      'desktop:macos': { code: 'KeyM', modifiers: ['primary', 'shift'] },
+      'desktop:windows': { code: 'KeyM', modifiers: ['primary', 'shift'] },
+      'desktop:linux': { code: 'KeyM', modifiers: ['primary', 'shift'] },
+      'web:macos': { code: 'KeyM', modifiers: ['primary', 'shift'] },
+      'web:windows': { code: 'KeyM', modifiers: ['primary', 'shift'] },
+    })
+    // Linux Web admits only a handful of combinations and this command has no free one, so the
+    // registry would reject the whole registration; it stays unbound and the settings own it.
+    expect(command.defaults).not.toHaveProperty('web:linux')
     expect(command.regions).toEqual(['page', 'editable'])
     await b.fiber.dispose()
     expect(b.shortcut()).toBeUndefined()

@@ -435,7 +435,11 @@ describe('web e2e: queue row actions', () => {
     ] satisfies ReplayEntry[]))
 
     const sessionEvents: SessionEvent[] = []
-    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, replayOverride: overridePath, compareReplaySession: false })
+    // A burst replay's decode window is zero or one millisecond depending on load, which decides
+    // whether the activity pill shows a throughput figure; pacing keeps that window non-zero.
+    scaffold = await launchWebScaffold({
+      replayFixture: FIXTURE, replayOverride: overridePath, compareReplaySession: false, paceMs: 5,
+    })
     scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)

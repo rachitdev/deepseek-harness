@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, onTestFailed, vi } from 'vitest'
 import type { Mock, MockInstance } from 'vitest'
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import type { Context } from '@deepseek-ai/cordis'
 import type { FileSystem, FsObservation, FsTarget } from '@deepseek-ai/dsh-fs'
@@ -77,6 +77,22 @@ async function ownedEndpoint() {
   cleanups.push(() => fiber.dispose())
   if (service === undefined) throw new Error('plugin body did not run')
   return { service, dispose: () => fiber.dispose() }
+}
+
+/**
+ * Await one watcher frame, or report that none arrived inside the budget.
+ *
+ * A real local watcher may coalesce or lose a notification under load, so the case needs to know
+ * whether it observed the creation itself or a later attempt before deciding what it proved.
+ * @param pending - the frame the stream owes for the path.
+ * @param budgetMs - how long to wait for it.
+ * @returns the delivered frame, or undefined when nothing arrived in time.
+ */
+async function frameWithin<T>(pending: Promise<T>, budgetMs: number): Promise<T | undefined> {
+  return Promise.race([
+    pending,
+    new Promise<undefined>((resolve) => { setTimeout(resolve, budgetMs) }),
+  ])
 }
 
 describe('workspaceFiles.changes — target frames', () => {
@@ -422,7 +438,9 @@ describe('workspaceFiles.changes — backends and access', () => {
     await expect(stream.next()).resolves.toEqual({ done: true, value: undefined })
   })
 
-  it('observes creation of a missing outside file through the real local watcher', async () => {
+  // This case waits on a real filesystem watcher, so its budget must cover the watcher's own
+  // latency under the full suite's CPU contention; the 5 s default belongs to ordinary cases.
+  it('observes creation of a missing outside file through the real local watcher', { timeout: 30_000 }, async () => {
     const started = performance.now()
     // Keep earlier awaits visible if teardown advances a timed-out test.
     const phases: Array<{ phase: string; elapsedMs: number }> = []
@@ -433,23 +451,42 @@ describe('workspaceFiles.changes — backends and access', () => {
 
     watch.mockRestore()
     const path = join(harness.outside, 'created.txt')
-    const staging = join(harness.outside, 'staged.txt')
-    // Publish complete bytes so an early watcher stat cannot observe a partial write.
-    mark('staging')
-    await writeFile(staging, 'new file contents')
     const service = harness.endpoint()
     const stream = open(service, path)
     mark('waiting-ready')
     await ready(stream)
     const pending = stream.next()
-    mark('renaming')
-    await rename(staging, path)
-    mark('reading-stat')
-    const current = await service.stat(harness.scope, path, stream.controller.signal)
-    mark('waiting-change')
-    await expect(pending).resolves.toEqual({
+    // Each attempt creates a missing file by renaming complete bytes into place, so whichever
+    // attempt the watcher reports, the frame it delivers is a creation frame. The stat happens
+    // before the wait and the file is untouched afterwards, so the reported version still matches.
+    type Frame = Awaited<ReturnType<typeof stream.next>>
+    let frame: Frame | undefined
+    let expected: Awaited<ReturnType<typeof service.stat>> | undefined
+    let delivered = -1
+    for (let attempt = 0; attempt < 3 && frame === undefined; attempt += 1) {
+      if (attempt > 0) await rm(path, { force: true })
+      // Staging sits beside the watched directory, not inside it: the watcher watches the parent
+      // of the missing file, so a staging write there could be delivered as the awaited frame.
+      const staging = join(dirname(harness.outside), `staged-${attempt}.txt`)
+      await writeFile(staging, 'new file contents')
+      mark(attempt === 0 ? 'renaming' : `renaming-attempt-${attempt}`)
+      await rename(staging, path)
+      const current = await service.stat(harness.scope, path, stream.controller.signal)
+      const settled = await frameWithin(pending, 2_000)
+      if (settled !== undefined) {
+        frame = settled
+        expected = current
+        delivered = attempt
+      }
+    }
+    mark(`delivered-by-attempt-${delivered}`)
+    // A frame that needs a second creation means the watcher lost the first notification, which is
+    // the behaviour this case is named for rather than something a retry may paper over.
+    expect(delivered, 'the watcher reported the first creation').toBe(0)
+    if (expected === undefined) throw new Error('the watcher reported no frame for the created file')
+    await expect(frame).toEqual({
       done: false,
-      value: { kind: 'change', change: { absolutePath: current.absolutePath, version: current.version } },
+      value: { kind: 'change', change: { absolutePath: expected.absolutePath, version: expected.version } },
     })
     mark('closing')
     await stream.close()

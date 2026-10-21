@@ -1,0 +1,43 @@
+{
+  "version": 2,
+  "class": "sdk/native-then-ptc",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:351237aa1d81acc360905a1d418b3bf829b7f4e8c24ae414ec472129d1fee495"
+    },
+    {
+      "tools": [
+        "run_code"
+      ],
+      "digest": "sha256:318b1dc1888d6998397dfc026e89e4b2e59d6b24b0097ddfdf1cfea78d1d9b22"
+    }
+  ]
+}

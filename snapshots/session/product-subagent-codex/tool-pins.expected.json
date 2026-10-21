@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "class": "session/product-subagent-codex/product-subagent-codex",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_codex_primary",
+        "subagent_codex_secondary",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:7843cbed5c0c489c5afd8ef8057fab06d6481c2e4c996a2bc56e710a7485675f"
+    }
+  ]
+}

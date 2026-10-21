@@ -1,0 +1,77 @@
+{
+  "version": 2,
+  "class": "session/advanced-toolchain/native-ptc-native",
+  "capability": "unconfined",
+  "sets": [
+    {
+      "tools": [
+        "bash",
+        "cordis_inspect_list",
+        "cordis_inspect_query",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:57aa340950646a86340a5d4b3df23ef405093f1ebe3b6e14ba58289de08ca3e0"
+    },
+    {
+      "tools": [
+        "run_code"
+      ],
+      "digest": "sha256:318b1dc1888d6998397dfc026e89e4b2e59d6b24b0097ddfdf1cfea78d1d9b22"
+    },
+    {
+      "tools": [
+        "bash",
+        "cordis_inspect_list",
+        "cordis_inspect_query",
+        "create_goal",
+        "edit",
+        "exit_plan_mode",
+        "get_goal",
+        "glob",
+        "grep",
+        "interrupt_agent",
+        "job_kill",
+        "job_list",
+        "job_output",
+        "list_agents",
+        "read",
+        "read_image",
+        "send_message",
+        "skill",
+        "subagent",
+        "subagent_fork",
+        "todo_write",
+        "update_goal",
+        "web_fetch",
+        "web_search",
+        "workflow",
+        "working_directory",
+        "write"
+      ],
+      "digest": "sha256:57aa340950646a86340a5d4b3df23ef405093f1ebe3b6e14ba58289de08ca3e0"
+    }
+  ]
+}

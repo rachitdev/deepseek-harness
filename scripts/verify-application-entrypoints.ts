@@ -36,6 +36,7 @@ const EXECUTABLE_SOURCE_ALLOWLIST = new Map<string, string>([
   ['packages/context/time-context/tests/fixtures/driver.ts', 'test-only subprocess driver'],
   ['packages/decision/decision-consumers/tests/fixtures/loader/driver.ts', 'test-only subprocess driver'],
   ['packages/decision/decision-consumers/tests/fixtures/recall-loader/driver.ts', 'test-only subprocess driver'],
+  ['packages/decision/decision-consumers/tests/fixtures/triage-loader/driver.ts', 'test-only subprocess driver'],
   ['packages/experimental/webworker-packer/bin.js', 'build-only wrapper'],
   ['packages/experimental/webworker-packer/src/bin.ts', 'build-only implementation'],
   ['packages/sdk/client/tests/fake-runtime.ts', 'test-only SDK runtime peer'],

@@ -4,8 +4,8 @@ import { constants } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
-import { Client } from '@modelcontextprotocol/client'
-import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
+import type { Client } from '@modelcontextprotocol/client'
+import type { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-experimental-speech-to-text'
@@ -102,8 +102,19 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     if (activeSession) return activeSession
     if (connecting) return await connecting
     const current = (async (): Promise<WarmSession> => {
-      const client = new Client({ name: 'dsh-apple-speech', version: '1.0.0' })
-      const transport = new StdioClientTransport({ command: config.command, args: [], env: scrubbedParentEnv() })
+      // The stdio transport is CommonJS and reaches the Node-only `global` through `cross-spawn`, so the
+      // client loads with the first session: a browser Worker mounts this plugin to list its provider
+      // without spawning the local server, and `apply` never gets here without the executable.
+      let modules: [typeof import('@modelcontextprotocol/client'), typeof import('@modelcontextprotocol/client/stdio')]
+      try {
+        modules = await Promise.all([import('@modelcontextprotocol/client'), import('@modelcontextprotocol/client/stdio')])
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        throw new Error(`Apple on-device speech could not load the local MCP client to start recognition: ${reason}`, { cause: error })
+      }
+      const [clientModule, transportModule] = modules
+      const client = new clientModule.Client({ name: 'dsh-apple-speech', version: '1.0.0' })
+      const transport = new transportModule.StdioClientTransport({ command: config.command, args: [], env: scrubbedParentEnv() })
       const session: WarmSession = { client, transport }
       client.onclose = () => {
         if (activeSession === session) activeSession = undefined

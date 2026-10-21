@@ -36,10 +36,30 @@ export interface SubagentSettledMessageSource {
   readonly senderSessionId: SessionId
 }
 
+/**
+ * Durable attribution for the runtime's own account of a delegated child
+ * having an approval ask rejected automatically. A third kind, not
+ * {@link AgentMessageSource} (the child did not choose these words) and not
+ * {@link SubagentSettledMessageSource} (the child has not ended): it reports
+ * one refusal inside the scope the delegation fixed.
+ */
+export interface SubagentDelegationNoticeSource {
+  readonly kind: 'subagent-delegation'
+  /** A runtime account shown without expanding the row (`notice` context form). */
+  readonly form: 'notice'
+  /** One-line account of the refused ask. */
+  readonly summary: string
+  /** Session id of the delegated child whose ask was refused. */
+  readonly childSessionId: SessionId
+  /** Tool whose operation the child asked to run. */
+  readonly toolName: string
+}
+
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'agent-message': AgentMessageSource
     'subagent-settled': SubagentSettledMessageSource
+    'subagent-delegation': SubagentDelegationNoticeSource
   }
 }
 
@@ -163,6 +183,38 @@ export function createSettlementMessage(
       form: 'notice' as const,
       summary: boundContextSummary(summary),
       senderSessionId: childId,
+    },
+  })
+}
+
+/**
+ * Build the runtime-owned notice reporting one delegated child ask that the
+ * delegation pin rejected. The parent needs this because the child's own
+ * `approval/asked`/`approval/decided` audit pair lives only in the child's log.
+ * @param childId - durable child session id named in the notice.
+ * @param toolName - tool whose operation the child asked to run.
+ * @returns the durable user-message representation delivered to the parent.
+ */
+export function createDelegationRejectionMessage(
+  childId: SessionId,
+  toolName: string,
+): ReturnType<typeof createUserMessage> {
+  const summary = `Delegated subagent ${childId} had its "${toolName}" request rejected automatically: `
+    + 'its permission scope was fixed when it was started, and approval asks are disabled in that scope.'
+  return createUserMessage({
+    content: [
+      { type: 'text' as const, text: summary },
+      {
+        type: 'text' as const,
+        text: 'It cannot widen its own scope. Send it a task that needs no wider access, or do that work yourself.',
+      },
+    ],
+    source: {
+      kind: 'subagent-delegation' as const,
+      form: 'notice' as const,
+      summary: boundContextSummary(summary),
+      childSessionId: childId,
+      toolName,
     },
   })
 }

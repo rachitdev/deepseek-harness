@@ -38,6 +38,20 @@ function makeProvider(overrides: Partial<ConstructorParameters<typeof JevDecisio
   })
 }
 
+/**
+ * The request the provider sent through the stubbed `fetch`.
+ * @param spy - the scripted `fetch` installed for this test.
+ * @returns the requested URL and the init the provider passed with it.
+ */
+function firstRequest(spy: ReturnType<typeof stubFetch>): { url: string; init: RequestInit } {
+  const [call] = spy.mock.calls
+  const [input, init] = call ?? []
+  if (init === undefined) throw new Error('the provider never sent a request')
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input?.url
+  if (url === undefined) throw new Error('the provider sent a request without a URL')
+  return { url, init }
+}
+
 /** Install a scripted `fetch`, returning the spy so a test can assert the request it sent. */
 function stubFetch(response: Response | Error) {
   const spy = vi.fn<typeof fetch>(() => response instanceof Error ? Promise.reject(response) : Promise.resolve(response))
@@ -114,7 +128,7 @@ describe('JevDecisionProvider evaluation', () => {
     const spy = stubFetch(jsonResponse({ answers: fullAnswers }))
     const result = await makeProvider().evaluate(request)
 
-    const [url, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
+    const { url, init } = firstRequest(spy)
     expect(url).toBe(`${JEV_DEFAULT_BASE_URL}${JEV_EVALUATION_PATH}`)
     expect(init.redirect).toBe('error')
     expect((init.headers as Record<string, string>)['authorization']).toBe('Bearer key')
@@ -221,7 +235,7 @@ describe('JevDecisionProvider evaluation', () => {
     const spy = stubFetch(jsonResponse({ answers: fullAnswers }))
     const controller = new AbortController()
     await makeProvider().evaluate(request, controller.signal)
-    const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
+    const { init } = firstRequest(spy)
     expect(init.signal?.aborted).toBe(false)
     controller.abort()
     expect(init.signal?.aborted).toBe(true)
@@ -299,7 +313,7 @@ describe('decision-jev plugin', () => {
     await ctx.plugin(DecisionRuntime, {})
     await ctx.plugin(jevPlugin, { apiKey: 'literal-key' })
     await ctx.decision.evaluate(request)
-    const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
+    const { init } = firstRequest(spy)
     expect((init.headers as Record<string, string>)['authorization']).toBe('Bearer literal-key')
   })
 })
@@ -314,7 +328,7 @@ describe('decision-jev credential and endpoint resolution', () => {
     await ctx.plugin(DecisionRuntime, {})
     await ctx.plugin(jevPlugin, {})
     await ctx.decision.evaluate(request)
-    const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
+    const { init } = firstRequest(spy)
     expect((init.headers as Record<string, string>)['authorization']).toBe('Bearer sealed-key')
   })
 
@@ -326,7 +340,7 @@ describe('decision-jev credential and endpoint resolution', () => {
       await ctx.plugin(DecisionRuntime, {})
       await ctx.plugin(jevPlugin, { apiKey: '' })
       await ctx.decision.evaluate(request)
-      const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
+      const { init } = firstRequest(spy)
       expect((init.headers as Record<string, string>)['authorization']).toBe('Bearer env-key')
     } finally {
       vi.unstubAllEnvs()
@@ -356,7 +370,7 @@ describe('decision-jev credential and endpoint resolution', () => {
       await ctx.plugin(DecisionRuntime, {})
       await ctx.plugin(jevPlugin, {})
       await ctx.decision.evaluate(request)
-      const [url] = spy.mock.calls[0] as unknown as [string, RequestInit]
+      const { url } = firstRequest(spy)
       expect(url).toBe(`https://typesafe.example${JEV_EVALUATION_PATH}`)
     } finally {
       vi.unstubAllEnvs()
@@ -375,7 +389,7 @@ describe('decision-jev credential and endpoint resolution', () => {
         model: 'jev-pinned',
       })
       await ctx.decision.evaluate(request)
-      const [url, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
+      const { url, init } = firstRequest(spy)
       expect(url).toBe(`https://pinned.example${JEV_EVALUATION_PATH}`)
       expect(JSON.parse(init.body as string)).toMatchObject({ model: 'jev-pinned' })
     } finally {
@@ -396,7 +410,7 @@ describe('decision-jev defaults without schema filling', () => {
       await ctx.plugin(DecisionRuntime, {})
       jevPlugin.apply(ctx, {})
       await ctx.decision.evaluate(request)
-      const [url, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
+      const { url, init } = firstRequest(spy)
       expect(url).toBe(`${JEV_DEFAULT_BASE_URL}${JEV_EVALUATION_PATH}`)
       expect(JSON.parse(init.body as string)).toMatchObject({ model: 'jev-latest' })
     } finally {
@@ -433,7 +447,7 @@ describe('decision-jev defaults without schema filling', () => {
       await ctx.plugin(DecisionRuntime, {})
       jevPlugin.apply(ctx, {})
       await ctx.decision.evaluate(request)
-      const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
+      const { init } = firstRequest(spy)
       expect(JSON.parse(init.body as string)).toMatchObject({ model: 'jev-dynamic-latest' })
     } finally {
       vi.unstubAllEnvs()

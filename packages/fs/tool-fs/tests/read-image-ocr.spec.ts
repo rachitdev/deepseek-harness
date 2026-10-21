@@ -114,6 +114,7 @@ async function recordingOcr(body: string, name = 'recording-ocr'): Promise<Recor
     staged,
     expectCleanedUp: async () => {
       const path = await staged()
+      expect(path, 'the fake OCR command never recorded its staged input').not.toBe('')
       expect(dirname(path)).toContain(STAGING_PREFIX)
       await expect(stat(path)).rejects.toThrow()
       await expect(stat(dirname(path))).rejects.toThrow()
@@ -492,18 +493,24 @@ describe('OCR failures are explicit', () => {
     await ocr.expectCleanedUp()
   })
 
-  it('fails on the configured deadline and still cleans up', async () => {
+  // The deadline must outlast the recognizer's own start-up, because the cleanup proof reads the
+  // path that child records before it sleeps; under the full suite's load a tighter deadline can
+  // kill the shell before its first write. The assertion is that the deadline is enforced, not
+  // that it is short.
+  it('fails on the configured deadline and still cleans up', { timeout: 30_000 }, async () => {
     await writeFile(join(dir, 'red.png'), PNG_1X1)
     const ocr = await recordingOcr('sleep 30')
-    const ctx = await setup({ toolFs: { readImageOcr: ocr.command, readImageOcrArgs: [], readImageOcrTimeoutMs: 500 } })
+    const ctx = await setup({ toolFs: { readImageOcr: ocr.command, readImageOcrArgs: [], readImageOcrTimeoutMs: 3_000 } })
 
     const result = await readImage(ctx, 'red.png', 'text-model')
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('did not finish within 500ms')
+    expect(text(result)).toContain('did not finish within 3000ms')
     await ocr.expectCleanedUp()
   })
 
-  it('fails when the caller cancels and still cleans up', async () => {
+  // Cancellation waits for the recognizer child to die and be reaped, which under the full suite's
+  // load can exceed the default budget; the assertion is about the cancellation, not about speed.
+  it('fails when the caller cancels and still cleans up', { timeout: 30_000 }, async () => {
     await writeFile(join(dir, 'red.png'), PNG_1X1)
     const ocr = await recordingOcr('sleep 30')
     const ctx = await setup({ toolFs: { readImageOcr: ocr.command, readImageOcrArgs: [] } })

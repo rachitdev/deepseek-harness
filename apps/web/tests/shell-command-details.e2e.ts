@@ -119,8 +119,14 @@ it.each([
             await page.keyboard.press('Tab')
             const focusTarget = background ? inputSection : card.getByRole('button', { name: 'Copy', exact: true })
             expect(await focusTarget.evaluate(element => document.activeElement === element)).toBe(true)
+            const endSettled = inputSection.evaluate(element => new Promise<void>((resolve) => {
+              element.addEventListener('scrollend', () => { resolve() }, { once: true })
+            }))
             await page.keyboard.press('End')
-            await expect.poll(() => inputSection.evaluate(element =>
+            // Chromium animates a keyboard End, so wait for the scroll it starts instead of polling the position;
+            // the timeout keeps a genuine failure a clean assertion instead of a hung promise.
+            await Promise.race([endSettled, page.waitForTimeout(2000)])
+            expect(await inputSection.evaluate(element =>
               element.scrollTop + element.clientHeight >= element.scrollHeight - 1)).toBe(true)
             await page.keyboard.press('Home')
             await expect.poll(() => inputSection.evaluate(element => element.scrollTop)).toBe(0)

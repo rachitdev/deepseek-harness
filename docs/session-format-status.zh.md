@@ -9,6 +9,7 @@
 ## 目录
 
 - [单一真源](#sources-of-truth)
+- [存储日志的封装](#stored-log-framing)
 - [定稿记录](#finalization-record)
 - [发布记录](#release-record)
 - [更新记录](#updating-the-record)
@@ -24,6 +25,13 @@
 产品的 alpha、beta 或 release-candidate 发布都会确立已发布 Session 格式的义务。GitHub 的 prerelease 标记不会让持久化用户数据成为可丢弃数据。缺少发布记录不代表尚未发布。[版本与真源决策](../.agents/notes/implemented/architecture/2026-08-10-session-log-version-mechanism.zh.md)拥有兼容性决策；[已发布格式迁移](../.agents/notes/implemented/architecture/2026-08-31-released-session-format-migrations.zh.md)拥有不可变代际与相邻转换规则。
 
 [格式参考](persistence-changes/historical-formats/README.zh.md)记录从零到工作区写入器的每个整数版本，提供历史 schema 并引用现有的当前目录。
+
+<a id="stored-log-framing"></a>
+## 存储日志的封装
+
+已提交的 generation 是以换行分隔的 JSON：每行一条记录，第一行是携带格式版本的 `type: 'session'` header。Zstandard 容器承载的是可独立解码的帧的拼接，因此一份日志可以包含任意数量的帧，一条记录也可以跨帧边界。可跳过帧是合法的容器成员：读取器跳过其内容而不解压，也不会把它报告为损坏。因此日志既不是一个 JSON 值，也不是一次解压调用的结果；帧布局由[包 README](../packages/session/session-persistence-jsonl/README.zh.md#understand-the-implementation) 拥有。
+
+[同一包](../packages/session/session-persistence-jsonl/src/reader.ts)中的 `readSessionLog` 是读取存储日志字节的受支持路径。它解码每一帧、切分记录，并用 `SESSION_FORMAT_VERSION` 或该记录所命名版本对应的历史 codec 校验第一条记录。调用方通过该函数读取来选择存储日志，而不是自行解压并切分容器。帧损坏以 `SessionLogCorruptError` 拒绝：首个字节既非 Zstandard 容器也非 JSONL 时为 `unrecognized-container`；某个帧的魔术数字、帧头或块结构在任意位置违反 Zstandard 时为 `invalid-container`，并携带 `damage.offset`。通过 `readSessionLogPrefix` 读取明文前缀时只扫描覆盖该前缀的帧，因此前缀之后的损坏不构成该次读取的证据；整份日志读取则会报告发现的任何容器损坏。
 
 <a id="finalization-record"></a>
 ## 定稿记录

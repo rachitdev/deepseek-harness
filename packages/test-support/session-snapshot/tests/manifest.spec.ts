@@ -5,6 +5,8 @@ describe('snapshot manifest', () => {
   it('parses an owning scenario', () => {
     expect(parseSnapshotManifest('version: 1\nprofile: headless\n')).toEqual({
       version: 1,
+      capability: 'unconfined',
+      sandbox: 'danger-full-access',
       profile: 'headless',
     })
   })
@@ -12,6 +14,8 @@ describe('snapshot manifest', () => {
   it('accepts the standalone SDK-minimal profile', () => {
     expect(parseSnapshotManifest('version: 1\nprofile: sdk-minimal\n')).toEqual({
       version: 1,
+      capability: 'unconfined',
+      sandbox: 'danger-full-access',
       profile: 'sdk-minimal',
     })
   })
@@ -26,6 +30,8 @@ describe('snapshot manifest', () => {
       '',
     ].join('\n'))).toEqual({
       version: 1,
+      capability: 'unconfined',
+      sandbox: 'danger-full-access',
       profile: 'headless',
       sessionFormat: { version: 0, coverage: ['multi-hop', 'packed-row'] },
     })
@@ -67,6 +73,8 @@ describe('snapshot manifest', () => {
       '',
     ].join('\n'))).toEqual({
       version: 1,
+      capability: 'unconfined',
+      sandbox: 'danger-full-access',
       profile: 'web',
       session: { source: '../../session/tool-call-turn/session.jsonl' },
     })
@@ -107,6 +115,8 @@ describe('snapshot manifest', () => {
       '',
     ].join('\n'))).toEqual({
       version: 1,
+      capability: 'escalation',
+      sandbox: 'workspace-write',
       scenario: 'sdk-case',
       profile: 'sdk',
       composition: 'continuable-subagent',
@@ -133,6 +143,73 @@ describe('snapshot manifest', () => {
     })
   })
 
+  it('keeps sandbox mode and approval capability as separate axes', () => {
+    // `auto` is a full-access sandbox whose denials still route to the user.
+    expect(parseSnapshotManifest([
+      'version: 1',
+      'profile: web',
+      'permission: auto',
+      '',
+    ].join('\n'))).toEqual({
+      version: 1,
+      capability: 'escalation',
+      sandbox: 'danger-full-access',
+      profile: 'web',
+      permission: 'auto',
+    })
+
+    // A declared mode alone cannot express interactive approvals in a full-access sandbox.
+    expect(parseSnapshotManifest([
+      'version: 1',
+      'profile: web',
+      'capability: escalation',
+      'sandbox: read-only',
+      '',
+    ].join('\n'))).toEqual({
+      version: 1,
+      capability: 'escalation',
+      sandbox: 'read-only',
+      profile: 'web',
+    })
+
+    // Two cases of one class may share a capability and differ in sandbox mode.
+    expect(parseSnapshotManifest([
+      'version: 1',
+      'profile: web',
+      'capability: unconfined',
+      'sandbox: danger-full-access',
+      '',
+    ].join('\n'))).toMatchObject({ capability: 'unconfined', sandbox: 'danger-full-access' })
+
+    // `interactive` is interactive approvals without an escalation-capable
+    // backend, so it resolves like `escalation` and differs only in what the
+    // tool surface advertises.
+    expect(parseSnapshotManifest([
+      'version: 1',
+      'profile: web',
+      'capability: interactive',
+      'permission: workspace-write',
+      '',
+    ].join('\n'))).toEqual({
+      version: 1,
+      capability: 'interactive',
+      sandbox: 'workspace-write',
+      profile: 'web',
+      permission: 'workspace-write',
+    })
+
+    // It still requires interactive approvals, so a never-approval preset fails.
+    expect(() => parseSnapshotManifest([
+      'version: 1',
+      'profile: web',
+      'capability: interactive',
+      'permission: danger-full-access',
+      '',
+    ].join('\n'))).toThrow(
+      'manifest.capability "interactive" needs approval policy "ask" but manifest.permission "danger-full-access" mounts "never"',
+    )
+  })
+
   it('parses independently optional header and input fields', () => {
     expect(parseSnapshotManifest([
       'version: 1',
@@ -144,6 +221,8 @@ describe('snapshot manifest', () => {
       '',
     ].join('\n'))).toEqual({
       version: 1,
+      capability: 'unconfined',
+      sandbox: 'danger-full-access',
       profile: 'headless',
       header: { class: 'default' },
       input: { task: 'Run once.' },
@@ -160,6 +239,8 @@ describe('snapshot manifest', () => {
       '',
     ].join('\n'))).toEqual({
       version: 1,
+      capability: 'unconfined',
+      sandbox: 'danger-full-access',
       profile: 'sdk',
       input: { attachments: [{ id: 'sha256:one', mediaType: 'image/png', data: 'AQ==' }] },
     })
@@ -180,7 +261,21 @@ describe('snapshot manifest', () => {
     ['version: 1\nprofile: acp\nheader:\n  class: base\n  systemPromptSource: ../bad\n', 'manifest.header.systemPromptSource must be a lower-kebab-case name or corpus-relative path'],
     ['version: 1\nprofile: acp\nreplay:\n  override: false\n', 'manifest.replay.override must equal true'],
     ['version: 1\nprofile: acp\nplatform: windows\n', 'manifest.platform must be posix or pwsh'],
-    ['version: 1\nprofile: acp\npermission: root\n', 'manifest.permission must be read-only, workspace-write, or danger-full-access'],
+    ['version: 1\nprofile: acp\npermission: root\n', 'manifest.permission must be read-only, workspace-write, danger-full-access, or auto'],
+    ['version: 1\nprofile: acp\nsandbox: temp\n', 'manifest.sandbox must be read-only, workspace-write, or danger-full-access'],
+    [
+      'version: 1\nprofile: web\npermission: read-only\nsandbox: danger-full-access\n',
+      'manifest.permission "read-only" mounts sandbox mode "read-only" but manifest.sandbox declares "danger-full-access"',
+    ],
+    [
+      'version: 1\nprofile: web\ncapability: unconfined\npermission: auto\n',
+      'manifest.capability "unconfined" needs approval policy "never" but manifest.permission "auto" mounts "ask"',
+    ],
+    [
+      'version: 1\nprofile: web\ncapability: escalation\nsandbox: danger-full-access\n',
+      'manifest.capability "escalation" needs approval policy "ask" but manifest.sandbox "danger-full-access" runs "never"; '
+      + 'declare the permission preset that expresses it',
+    ],
     ['version: 1\nprofile: acp\nenvironment:\n  lower: value\n', 'manifest.environment must map uppercase environment names to strings'],
     ['version: 1\nprofile: acp\nworkspace: {}\n', 'manifest.workspace must not be empty'],
     ['version: 1\nprofile: acp\nworkspace:\n  final: false\n', 'manifest.workspace.final must equal true when present'],

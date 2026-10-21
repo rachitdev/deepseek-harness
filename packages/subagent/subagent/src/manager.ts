@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto'
 import { isAbsolute, resolve } from 'node:path'
 import type {} from '@deepseek-ai/dsh-working-directory'
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent, AgentOptions, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions, AgentStatus, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { ReasoningEffortId, contentHasImage, createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
@@ -21,10 +21,12 @@ import type { SessionObservation, SessionQueryEngine } from '@deepseek-ai/dsh-se
 import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import {
   appendDelegatedPolicyOverrides, applyChildComposition, captureDelegatedPolicyOverrides,
-  childSessionMeta, resolveChildAgentOptions, resolveChildDepth,
+  childSessionMeta, observeDelegatedApprovalRejections, resolveChildAgentOptions, resolveChildDepth,
 } from './child-agent.ts'
-import type { ChildComposition, DelegatedPolicyOverrides } from './child-agent.ts'
-import { createAgentMessage, withContinuableReturnGuidance, createSettlementMessage } from './continuation-messages.ts'
+import type { ChildComposition, DelegatedPolicyOverrides, DelegationRejectionSubscription } from './child-agent.ts'
+import {
+  createAgentMessage, createDelegationRejectionMessage, createSettlementMessage, withContinuableReturnGuidance,
+} from './continuation-messages.ts'
 import { assertSubagentMaxDepth } from './depth.ts'
 import { foldSubagentDescriptor, snapshotSubagentDescriptor } from './descriptor.ts'
 import type { SubagentDescriptorData } from './descriptor.ts'
@@ -126,10 +128,40 @@ function failureMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'unknown teardown failure'
 }
 
+/**
+ * Where one runtime-owned notice enters its parent agent.
+ * @param status - the exact parent's current status.
+ * @param closing - whether the parent's tree already began draining.
+ * @returns `inject` for a draining parent, else a queued turn or steering input.
+ */
+export function runtimeNoticeChannel(
+  status: AgentStatus,
+  closing: boolean,
+): 'inject' | 'queue' | 'steer' {
+  if (closing) return 'inject'
+  return status === 'idle' ? 'queue' : 'steer'
+}
+
+/** Process-local delegation bookkeeping for one durable child. */
+interface DelegationFacts extends DelegationRejectionSubscription {
+  pinned: boolean
+}
+
 /** Own subagent requests and the resources of every live activation. */
 export class SubagentManager {
   /** Child session id → its live Activation. Process-local, never durable. */
   private readonly resident = new Map<SessionId, Activation>()
+  /**
+   * Process-local delegation facts per durable child: the child's latest
+   * policy attribution and the tools already reported to the parent. A record
+   * exists only while it carries one of those two facts: it is written when a
+   * residency pins the child, observes a policy, or reports a tool, and an
+   * epoch that ends with neither retires it. The manager also releases a
+   * record with the child and clears the rest on drain, so the map holds one
+   * entry per child still carrying an attribution or a reported tool. Nothing
+   * here is persisted, so a new process starts with fresh bookkeeping.
+   */
+  private readonly delegations = new Map<SessionId, DelegationFacts>()
   /** Root identities retain their pool across child settlement without retaining dead roots. */
   private readonly rootPools = new WeakMap<Agent, ActivationPool>()
   /** Materializations admitted before drain, tracked through publication or rollback. */
@@ -241,7 +273,14 @@ export class SubagentManager {
       for (const child of activation.ownedChildren) owned.add(child)
     }
     const roots = [...this.resident.values()].filter(activation => !owned.has(activation.childId))
-    await this.disposeRoots(roots, 'activation(s)')
+    try {
+      await this.disposeRoots(roots, 'activation(s)')
+    } finally {
+      // Drain ends every residency this manager owns, including children that
+      // settled earlier and kept their facts for a later resume, even when
+      // teardown reports failures.
+      this.delegations.clear()
+    }
   }
 
   /**
@@ -767,8 +806,8 @@ export class SubagentManager {
    * @param activation - exact residency epoch to close.
    * @returns the shared close transaction.
    */
-  private dispose(activation: Activation): Promise<void> {
-    return this.close(activation, () => this.finishDisposal(activation, true))
+  private dispose(activation: Activation, retirement: 'child' | 'epoch' = 'child'): Promise<void> {
+    return this.close(activation, () => this.finishDisposal(activation, true, retirement))
   }
 
   /** Close admission synchronously and share one release, including startup rollback. */
@@ -801,6 +840,45 @@ export class SubagentManager {
         'ACTIVATION_TEARDOWN_FAILED',
       )
     }
+  }
+
+  /**
+   * Read or create the process-local delegation facts for one durable child.
+   * A resumed child keeps the facts its creation recorded; a child this
+   * process never created starts unpinned with nothing reported.
+   * @param childId - the durable child whose facts apply.
+   * @returns the retained facts, mutated by the notice subscription.
+   */
+  private delegationFacts(childId: SessionId): DelegationFacts {
+    const existing = this.delegations.get(childId)
+    if (existing !== undefined) return existing
+    const facts: DelegationFacts = { pinned: false, reported: new Set() }
+    this.delegations.set(childId, facts)
+    return facts
+  }
+
+  /**
+   * Retire a record that carries neither a pin attribution nor a reported
+   * tool. A residency that minted one by merely resuming the child leaves
+   * nothing to remember, and keeping it would grow the map with every child
+   * ever resumed in this process.
+   * @param childId - the durable child whose record may be discarded.
+   */
+  private retireEmptyDelegationFacts(childId: SessionId): void {
+    const facts = this.delegations.get(childId)
+    if (facts === undefined || facts.pinned || facts.reported.size > 0) return
+    this.delegations.delete(childId)
+  }
+
+  /**
+   * Deliver one runtime-owned notice to the exact parent agent.
+   * @param parent - the exact parent the notice addresses.
+   * @param message - the durable user-message representation of the notice.
+   */
+  private deliverRuntimeNotice(parent: Agent, message: UserMessage): void {
+    const channel = runtimeNoticeChannel(parent.status, this.closingTeardownFor(parent) !== undefined)
+    if (channel === 'inject') parent.inject(message)
+    else this.sendWaking(parent, message, channel)
   }
 
   /** Return the retained member set for one exact scoped-teardown root. */
@@ -856,6 +934,7 @@ export class SubagentManager {
   ): Promise<Activation> {
     const { provider, parent } = inputs
     let childId = inputs.childId
+    let createdPin = false
     inputs.signal.throwIfAborted()
     let resource: ActivationResource
     if (inputs.kind === 'external') {
@@ -889,6 +968,7 @@ export class SubagentManager {
           }
           child.session.append('subagent/descriptor', create.descriptor)
           appendDelegatedPolicyOverrides(child.session, create.delegatedPolicies)
+          createdPin = create.delegatedPolicies.approvalPolicy === 'never'
           const workingDirectory = childCtx.get('workingDirectory')
           if (workingDirectory === undefined) throw new Error('local subagents require the working-directory service')
           await workingDirectory.set(child, create.cwd, inputs.signal)
@@ -924,6 +1004,7 @@ export class SubagentManager {
       resource = { kind: 'local', handle, outputStart: handle.agent.session.seq, structured, failureAt: undefined, poke: Promise.withResolvers<void>() }
     }
     const observer = this.host.observeActivation(provider, childId, parent)
+    const created = inputs.kind === 'local' && inputs.create !== undefined
 
     const activation: Activation = {
       pool,
@@ -938,8 +1019,12 @@ export class SubagentManager {
       ownedChildren: new Set(),
       observer,
       announced: false,
+      created,
     }
     void activation.result.promise.catch(() => undefined)
+    // Record the delegated pin only once the child Agent exists: a rejection
+    // inside `agents.create`'s setup must not leave an entry behind.
+    if (created) this.delegationFacts(childId).pinned = createdPin
     this.resident.set(childId, activation)
     try {
       this.assertAdmitting(parent)
@@ -952,6 +1037,9 @@ export class SubagentManager {
         activation.handle.agent.ctx.on('agent/inbox/inserted', wakeSettlement)
         activation.handle.agent.ctx.on('agent/inbox/claimed', wakeSettlement)
         activation.handle.agent.ctx.on('agent/inbox/discarded', wakeSettlement)
+        observeDelegatedApprovalRejections(activation.handle.agent, this.delegationFacts(childId), (message) => {
+          this.notifyDelegationRejection(activation, message)
+        })
       }
       observer.start(activationAgent(activation))
     } catch (error: unknown) {
@@ -986,6 +1074,11 @@ export class SubagentManager {
       } finally {
         this.resident.delete(activation.childId)
         activation.releaseSlot()
+        // Only a creation owns these facts; a failed admission of a resume
+        // leaves the child's settled facts for the next attempt, but a record
+        // it minted without filling is retired with the epoch.
+        if (activation.created) this.delegations.delete(activation.childId)
+        else this.retireEmptyDelegationFacts(activation.childId)
         this.releaseOwnership(activation.childId)
         activation.result.reject(error)
       }
@@ -1091,7 +1184,11 @@ export class SubagentManager {
   }
 
   /** Propagate stop synchronously and await descendant startup rollback before release. */
-  private async finishDisposal(activation: Activation, stop: boolean): Promise<void> {
+  private async finishDisposal(
+    activation: Activation,
+    stop: boolean,
+    retirement: 'child' | 'epoch' = 'child',
+  ): Promise<void> {
     this.wake(activation)
     const { childId } = activation
     const failures: SubagentError[] = []
@@ -1174,6 +1271,12 @@ export class SubagentManager {
     }
     this.resident.delete(childId)
     activation.releaseSlot()
+    // A released child retires its delegation facts, while natural settlement
+    // keeps them so the child's next residency does not report a tool twice. A
+    // discarded epoch keeps them too unless it created the child, and a record
+    // this epoch minted but never filled is retired either way.
+    if (stop && (retirement === 'child' || activation.created)) this.delegations.delete(childId)
+    else this.retireEmptyDelegationFacts(childId)
     const terminal: SubagentResult = failure === undefined ? result : { output: [], stopReason: 'error' }
     this.notifySettlement(activation, result)
     this.releaseOwnership(childId)
@@ -1181,6 +1284,31 @@ export class SubagentManager {
     if (resultFailure === undefined) activation.result.resolve(result)
     else activation.result.reject(resultFailure.error)
     if (failure !== undefined) throw failure
+  }
+
+  /**
+   * Deliver one auto-rejected delegated ask to the direct parent, where the
+   * scope was chosen. Like the settlement notice, a caller-delivery child
+   * reports to its caller only; a parent-delivery child's notice reaches the
+   * parent's log whether or not it is idle.
+   * @param activation - the delegated child whose ask was rejected.
+   * @param message - the runtime notice naming the refused tool.
+   */
+  private notifyDelegationRejection(
+    activation: LocalActivation,
+    message: ReturnType<typeof createDelegationRejectionMessage>,
+  ): void {
+    if (activation.delivery === 'caller') return
+    try {
+      const parent = this.ctx.agents.get(activation.parent.id)
+      if (parent !== activation.parent) return
+      this.deliverRuntimeNotice(parent, message)
+    } catch (error: unknown) {
+      this.ctx.logger.warn(
+        `subagent "${activation.childId}" delegation notice was not delivered to its parent: `
+        + errorChain(error),
+      )
+    }
   }
 
   /** Deliver the captured execution result to the durable direct parent after cleanup. */
@@ -1192,11 +1320,7 @@ export class SubagentManager {
       const message = createSettlementMessage(
         activation.childId, terminal, activationAgent(activation) !== undefined,
       )
-      if (this.closingTeardownFor(parent) !== undefined) {
-        parent.inject(message)
-        return
-      }
-      this.sendWaking(parent, message, parent.status === 'idle' ? 'queue' : 'steer')
+      this.deliverRuntimeNotice(parent, message)
     } catch (error: unknown) {
       this.ctx.logger.warn(
         `subagent "${activation.childId}" settlement notice was not delivered to its parent: `
@@ -1404,7 +1528,7 @@ export class SubagentManager {
       return messageId
     } catch (error: unknown) {
       try {
-        await this.dispose(activation)
+        await this.dispose(activation, 'epoch')
       } catch (cleanupError: unknown) {
         this.ctx.logger.warn(
           `subagent continuation: disposal after admission or catalog append failure also failed: ${String(cleanupError)}`,

@@ -349,7 +349,7 @@ describe('web e2e: fresh round trip through the real assembly', () => {
       'accepted-reconnect.expected.md',
       'submission-echo.expected.md',
       'system-prompt.expected.md',
-      'tool-schemas.expected.json',
+      'tool-pins.expected.json',
       'web-context.expected.md',
       'ui.expected.md',
       'ui-expanded.expected.md',

@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "class": "session/ptc-persistent/ptc-persistent",
+  "capability": "escalation",
+  "sets": [
+    {
+      "tools": [
+        "run_code"
+      ],
+      "digest": "sha256:7af825240d3fef6ed558295781758702d7bd78533935fb5d6c71aa740403fb4a"
+    }
+  ]
+}

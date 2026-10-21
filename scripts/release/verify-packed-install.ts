@@ -97,6 +97,13 @@ function main(): void {
       version: '0.0.0',
       private: true,
       dependencies: Object.fromEntries([...packed].map(([name, entryPacked]) => [name, entryPacked.url])),
+      // npm 12 runs dependency install scripts only for packages the consumer
+      // manifest approves (`allowScripts`), so a blocked postinstall would fake a
+      // passing verification: `dsh-subprocess-local` builds its spawn helper
+      // there. Approve exactly the tarballs handed to `--from` — the artifacts
+      // under test, whose scripts a consumer would run. File dependencies match
+      // the tarball URL, which is the same string the dependency entry uses.
+      allowScripts: Object.fromEntries([...packed.values()].map(entryPacked => [entryPacked.url, true])),
     }, null, 2)}\n`)
 
     const environment = consumerEnvironment(consumerRoot)
