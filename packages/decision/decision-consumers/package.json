@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-decision-consumers",
   "description": "Nine decision-driven consumers, including live parallel-probe model failover",
-  "version": "0.1.7-rc.1",
+  "version": "0.2.1-rc.2",
   "publishConfig": {
     "access": "public"
   },

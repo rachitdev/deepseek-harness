@@ -10,9 +10,9 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { DiffCallView, DiffResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-fs'
 import { computeHunkDiffs, diffsFromMeta } from './diff.ts'
-import { remediateFsError } from './error.ts'
 import { mutationResult } from './mutation-result.ts'
 import { sessionResolveOptions } from './session-cwd.ts'
+import { rethrowMutationFailure } from './sandbox.ts'
 import type { FsSandboxController } from './sandbox.ts'
 
 /** Validated `edit` arguments after defaulting. */
@@ -139,10 +139,7 @@ export function applyEditTool(ctx: Context, sandbox: FsSandboxController): void 
           sandboxPolicy,
         )
       } catch (error: unknown) {
-        // A sandbox denial becomes the shared [sandbox: …] marker (the model
-        // recognizes it from bash); guarded mutation failures receive their
-        // stable model-facing diagnostic; anything else passes through.
-        throw remediateFsError(sandbox.mapError(error, sandboxPolicy, sandbox.advertiseHint(exec)), target.displayPath)
+        rethrowMutationFailure(error, sandbox, sandboxPolicy, exec, target.displayPath)
       }
       return mutationResult(ctx, target, outcome, exec)
     },

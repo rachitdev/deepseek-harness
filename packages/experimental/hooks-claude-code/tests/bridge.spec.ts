@@ -46,7 +46,7 @@ function writeConfig(hooks: unknown, scripts: Record<string, string> = {}): stri
   return dir
 }
 
-async function harness(configDir: string, adapter: MockAdapter, beforeHooks?: (ctx: Context) => void): Promise<Context> {
+async function harness(configDir: string, adapter: MockAdapter, beforeHooks?: (ctx: Context) => void | Promise<void>): Promise<Context> {
   return (await harnessWithFiber(configDir, adapter, beforeHooks)).ctx
 }
 

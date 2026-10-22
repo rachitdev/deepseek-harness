@@ -29,7 +29,9 @@ function htmlResponse(body: string, init: ResponseInit = {}): Response {
 function recordedFetch(mock: Mock<typeof fetch>): { url: URL; init: RequestInit | undefined } {
   const [call] = mock.mock.calls
   if (call === undefined) throw new Error('the provider never called fetch')
-  return { url: new URL(String(call[0])), init: call[1] }
+  const [input] = call
+  if (!(input instanceof URL)) throw new Error('the provider passed a non-URL to fetch')
+  return { url: input, init: call[1] }
 }
 
 /** A response whose body read rejects, for the provider's body-failure paths. */
@@ -46,6 +48,7 @@ class FailingBodyResponse extends Response {
 
   /** @returns a promise that always rejects with the recorded failure. */
   override text(): Promise<string> {
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- The fixture rejects with the caller's failure value.
     return Promise.reject(this.#failure)
   }
 }
@@ -241,8 +244,9 @@ describe('DuckDuckGoSearchProvider error handling', () => {
 
   it('rejects an oversized body instead of parsing it', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => htmlResponse('x'.repeat(1_000_001))))
-    await expect(new DuckDuckGoSearchProvider(options).search({ query: 'q' }))
-      .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: expect.stringContaining('oversized response body') }))
+    const search = new DuckDuckGoSearchProvider(options).search({ query: 'q' })
+    await expect(search).rejects.toMatchObject({ code: 'WEB_PROVIDER_ERROR' })
+    await expect(search).rejects.toThrow(/oversized response body/)
   })
 })
 

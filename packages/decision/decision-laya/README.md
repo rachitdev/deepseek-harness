@@ -70,7 +70,7 @@ The TypeScript provider first checks the worker health endpoint. If no worker an
 | File | Responsibility |
 |---|---|
 | [`src/provider.ts`](src/provider.ts) | Provider translation, worker activation, readiness, and HTTP evaluation |
-| [`src/worker.py`](src/worker.py) | Cached Laya loading, local HTTP service, and idle shutdown |
+| [`src/worker.py`](src/worker.py) | Cached Laya loading, local HTTP service, and idle shutdown. Repository source only: the published tarball omits it, so a deployment supplies the script through `workerScriptPath` |
 | [`src/index.ts`](src/index.ts) | Cordis configuration and provider registration |
 
 </details>

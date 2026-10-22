@@ -69,7 +69,7 @@ function parseItems(
   for (const match of text.matchAll(pattern)) {
     const readItem = read(match)
     const index = match.index
-    if (readItem === undefined || index === undefined) return undefined
+    if (readItem === undefined) return undefined
     const leading = text.slice(cursor, index)
     if (header === undefined) header = leading
     items.push({

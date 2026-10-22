@@ -5,13 +5,10 @@
  * @module @deepseek-ai/dsh-decision-jev/types
  */
 
-/** One question as the System One endpoint accepts it. */
-export interface JevQuestion {
-  readonly type: 'choice' | 'score' | 'noul'
-  readonly instructions: string
-  /** Option map for `choice`, ordered level array for `score`, absent for `noul`. */
-  readonly criteria?: Readonly<Record<string, string>> | readonly string[]
-}
+import type { SingleAnswerWireQuestion } from '@deepseek-ai/dsh-decision'
+
+/** One question as the System One endpoint accepts it; the shared single-answer wire shape. */
+export type JevQuestion = SingleAnswerWireQuestion
 
 /** The request body posted to the System One endpoint. */
 export interface JevRequest {

@@ -11,9 +11,9 @@ import type { DiffCallView, DiffResultView, ToolResult } from '@deepseek-ai/dsh-
 import type { FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import { computeHunkDiffs, diffsFromMeta, pathFromMeta } from './diff.ts'
-import { remediateFsError } from './error.ts'
 import { mutationResult } from './mutation-result.ts'
 import { sessionResolveOptions } from './session-cwd.ts'
+import { rethrowMutationFailure } from './sandbox.ts'
 import type { FsSandboxController } from './sandbox.ts'
 
 /**
@@ -123,10 +123,7 @@ export function applyWriteTool(ctx: Context, sandbox: FsSandboxController): void
       try {
         outcome = await ctx.fs.writeText(target, input.content, intent, exec.signal, sandboxPolicy)
       } catch (error: unknown) {
-        // A sandbox denial becomes the shared [sandbox: …] marker (the model
-        // recognizes it from bash); guarded mutation failures receive their
-        // stable model-facing diagnostic; anything else passes through.
-        throw remediateFsError(sandbox.mapError(error, sandboxPolicy, sandbox.advertiseHint(exec)), target.displayPath)
+        rethrowMutationFailure(error, sandbox, sandboxPolicy, exec, target.displayPath)
       }
       return mutationResult(ctx, target, outcome, exec)
     },

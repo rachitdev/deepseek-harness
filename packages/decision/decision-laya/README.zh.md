@@ -70,7 +70,7 @@ TypeScript 提供方先检查 worker 健康端点。如果没有 worker 响应�
 | 文件 | 责任 |
 |---|---|
 | [`src/provider.ts`](src/provider.ts) | 提供方转换、worker 激活、就绪检查和 HTTP 评估 |
-| [`src/worker.py`](src/worker.py) | 缓存的 Laya 加载、本地 HTTP 服务和空闲关闭 |
+| [`src/worker.py`](src/worker.py) | 缓存的 Laya 加载、本地 HTTP 服务和空闲关闭。仅为仓库源码：发布 tarball 不包含该文件，部署需通过 `workerScriptPath` 提供脚本 |
 | [`src/index.ts`](src/index.ts) | Cordis 配置与提供方注册 |
 
 </details>

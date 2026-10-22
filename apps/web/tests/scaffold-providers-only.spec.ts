@@ -25,7 +25,7 @@ describe('providers-only replay fixture guard', () => {
   it('accepts the recorded fixture and reads its header through the session reader', async () => {
     const records = await assertProvidersOnlyFixture(await fixtureBytes())
 
-    expect(records[0]?.['type']).toBe('session')
+    expect(records[0]).toMatchObject({ type: 'session' })
   })
 
   // A Zstandard fixture must reach the reader still framed: decoding it to text first would

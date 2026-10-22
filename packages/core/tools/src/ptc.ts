@@ -384,13 +384,10 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
     },
     finalizeContent(exec, result) {
       if (escalationAdvertised(ctx, exec.agent)) return undefined
-      let changed = false
-      const content = result.content.map((block) => {
-        if (block.type !== 'text' || !block.text.includes(PTC_ESCALATION_GUIDANCE)) return block
-        changed = true
-        return { ...block, text: block.text.replace(PTC_ESCALATION_GUIDANCE, '') }
-      })
-      return changed ? content : undefined
+      const stripped = result.content.map(block => (block.type === 'text' && block.text.includes(PTC_ESCALATION_GUIDANCE)
+        ? { ...block, text: block.text.replace(PTC_ESCALATION_GUIDANCE, '') }
+        : block))
+      return stripped.some((block, index) => block !== result.content[index]) ? stripped : undefined
     },
     async execute(args, exec): Promise<RunCodeOutput> {
       if (args.description.trim().length === 0) {

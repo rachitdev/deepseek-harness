@@ -223,6 +223,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     throw new Error('tool-pwsh: the mounted bash executor confines but ctx.sandboxPolicy is missing')
   }
   /* jscpd:ignore-end */
+  /* jscpd:ignore-start -- resolved policy and hint modes mirror dsh-tool-bash's by design (pwsh-tool-and-executor Agent Note). */
   /** Resolve the complete standing policy for this call when a confining executor is mounted. */
   const resolveSandboxPolicy = (exec: ToolExecution): SandboxExecutionPolicy | undefined =>
     sandboxPolicy?.resolve(exec.agent === undefined ? {} : { session: exec.agent.session })
@@ -232,6 +233,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     if (agent !== undefined && ctx.get('approval')?.policyOf(agent.session) === 'never') return []
     return escalationModes
   }
+  /* jscpd:ignore-end */
 
   /* jscpd:ignore-start -- deliberate mirror of dsh-tool-bash's escalation resolver (pwsh-tool-and-executor Agent Note). */
   /**
@@ -506,11 +508,13 @@ export function apply(ctx: Context, config: Config = {}): void {
         }],
         presentationMeta: (_args, value) => ({ cwd: value.cwd }),
       },
+      /* jscpd:ignore-start -- finalizeContent mirrors dsh-tool-bash's omit-flag projection by design. */
       finalizeContent(exec, result) {
         const agent = exec.agent
         const omit = agent !== undefined && ctx.get('approval')?.policyOf(agent.session) === 'never'
         return mapTextWithoutEscalationHint(result.content, omit)
       },
+      /* jscpd:ignore-end */
       /* jscpd:ignore-start -- the execute path mirrors dsh-tool-bash's by design (see the pwsh-tool-and-executor Agent Note). */
       async execute(args: PwshToolArgs, exec) {
         validatePwshArgs(args)

@@ -16,7 +16,7 @@ function event(type: string, data: Record<string, unknown>, _seq = 0): string {
 // A committed fixture supplies the header, so the rows below are appended to a header the replay
 // parser accepts instead of one this spec guesses at.
 const HEADER = readFileSync(fileURLToPath(
-  new URL('../../../snapshots/web/minimal-preset/session.v4.jsonl', import.meta.url)), 'utf8').split('\n')[0]!
+  new URL('../../../snapshots/web/minimal-preset/session.v4.jsonl', import.meta.url)), 'utf8').split('\n')[0]
 
 function recording(...events: string[]): string {
   return `${HEADER}\n${events.join('')}`

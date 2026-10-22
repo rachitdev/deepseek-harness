@@ -894,7 +894,10 @@ describe('tool-web execution through the real registry', () => {
       webConfig: { fetchProvider: 'stub-fetch' },
       fetchProvider,
       decisionEvaluate: (_request, signal) => new Promise((_resolve, reject) => {
-        const fail = (): void => { reject(signal?.reason ?? new Error('aborted')) }
+        const fail = (): void => {
+          const reason: unknown = signal?.reason
+          reject(reason instanceof Error ? reason : new Error('aborted'))
+        }
         if (signal?.aborted === true) {
           fail()
           return

@@ -4,6 +4,7 @@
  */
 
 import type { Context, Events } from '@deepseek-ai/cordis'
+import { latestUserTaskText } from '@deepseek-ai/dsh-agent'
 import type { Agent, RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import {
   ReasoningEffortId,
@@ -182,21 +183,6 @@ function availablePrimaryRoutes(ctx: Context, config: ResolvedModelFailoverConfi
 function availableFallbackRoutes(config: ResolvedModelFailoverConfig): FailoverModelRoute[] {
   const primaryKeys = new Set(config.candidates.map(routeKey))
   return deduplicateRoutes(config.fallbackCandidates).filter(route => !primaryKeys.has(routeKey(route)))
-}
-
-function latestUserTask(agent: Agent, maxChars: number): string {
-  const messages = agent.session.deriveMessages()
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (message?.role !== 'user' || message.source.kind !== 'user') continue
-    const text = message.content
-      .filter(block => block.type === 'text')
-      .map(block => block.text)
-      .join('\n')
-      .trim()
-    if (text.length > 0) return text.slice(0, maxChars)
-  }
-  return 'Continue the current coding-agent task safely.'
 }
 
 function tokenCount(usage: TokenUsage | undefined): number {
@@ -406,7 +392,7 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
     signal: AbortSignal,
   ): Promise<FailoverModelRoute | undefined> {
     const fusedSignal = AbortSignal.any([signal, lifetime.signal])
-    const task = latestUserTask(agent, config.maxTaskChars)
+    const task = latestUserTaskText(agent, config.maxTaskChars, 'Continue the current coding-agent task safely.')
     const { candidates, probes } = await probePrimaryThenFallback(
       availablePrimaryRoutes(ctx, config),
       availableFallbackRoutes(config),
@@ -481,7 +467,7 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
       }
     }
     const proposed = await next()
-    if (!configuredRoutes.has(agent) && proposed.provider !== undefined && proposed.model !== undefined) {
+    if (!configuredRoutes.has(agent)) {
       configuredRoutes.set(agent, { provider: proposed.provider, model: proposed.model })
     }
     const configured = configuredRoutes.get(agent)
@@ -541,7 +527,7 @@ export function installModelFailover(ctx: Context, policy: ModelFailoverConfig):
       const cancelled = (): boolean => fusedSignal.aborted
       const primary = availablePrimaryRoutes(ctx, config)
         .filter(route => !state.failedRoutes.has(routeKey(route)))
-      const task = latestUserTask(agent, config.maxTaskChars)
+      const task = latestUserTaskText(agent, config.maxTaskChars, 'Continue the current coding-agent task safely.')
       const fallback = availableFallbackRoutes(config)
         .filter(route => !state.failedRoutes.has(routeKey(route)))
       const { candidates, probes } = await probePrimaryThenFallback(primary, fallback, task, fusedSignal)

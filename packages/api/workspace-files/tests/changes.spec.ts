@@ -484,7 +484,7 @@ describe('workspaceFiles.changes — backends and access', () => {
     // the behaviour this case is named for rather than something a retry may paper over.
     expect(delivered, 'the watcher reported the first creation').toBe(0)
     if (expected === undefined) throw new Error('the watcher reported no frame for the created file')
-    await expect(frame).toEqual({
+    expect(frame).toEqual({
       done: false,
       value: { kind: 'change', change: { absolutePath: expected.absolutePath, version: expected.version } },
     })

@@ -3,13 +3,10 @@
  * @module @deepseek-ai/dsh-decision-laya/types
  */
 
-/** One question as the Laya System 1 endpoint accepts it. */
-export interface LayaQuestion {
-  readonly type: 'choice' | 'score' | 'noul'
-  readonly instructions: string
-  /** Option map for `choice`, ordered level array for `score`, absent for `noul`. */
-  readonly criteria?: Readonly<Record<string, string>> | readonly string[]
-}
+import type { SingleAnswerWireQuestion } from '@deepseek-ai/dsh-decision'
+
+/** One question as the Laya worker accepts it; the shared single-answer wire shape. */
+export type LayaQuestion = SingleAnswerWireQuestion
 
 /** The request body posted to the Laya worker. */
 export interface LayaRequest {

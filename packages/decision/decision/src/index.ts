@@ -32,6 +32,7 @@ export type {
   DecisionScoreAnswer,
   DecisionScoreQuestion,
 } from './types.ts'
+export * from './wire-question.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {

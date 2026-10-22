@@ -149,7 +149,7 @@ export function apply(ctx: ClientContext): void {
           if (!window.closed) window.location.replace('about:blank')
         }, 300)
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         // The Host may close the socket before the response lands; that is
         // still considered a successful shutdown attempt.
         if ((error instanceof TypeError || String(error).includes('Failed to fetch')) && !navigator.onLine) {

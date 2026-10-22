@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-decision-jev/provider
  */
 
-import { DecisionError } from '@deepseek-ai/dsh-decision'
+import { DecisionError, toSingleAnswerWireQuestion } from '@deepseek-ai/dsh-decision'
 import type {
   DecisionAnswer,
   DecisionProvider,
@@ -58,16 +58,7 @@ export interface JevDecisionProviderOptions {
  * @returns the question as the System One endpoint accepts it.
  */
 export function toJevQuestion(question: DecisionQuestion): JevQuestion {
-  switch (question.type) {
-    case 'choice':
-      return { type: 'choice', instructions: question.instructions, criteria: question.criteria }
-    case 'score':
-      return { type: 'score', instructions: question.instructions, criteria: question.criteria }
-    case 'boolean':
-      return { type: 'noul', instructions: question.instructions }
-    default:
-      return assertNever(question)
-  }
+  return toSingleAnswerWireQuestion(question)
 }
 
 /**
@@ -213,18 +204,6 @@ export class JevDecisionProvider implements DecisionProvider {
     }
     return { answers, providerId: this.id }
   }
-}
-
-/**
- * Exhaustiveness guard for the closed question union.
- * @param value - the arm TypeScript proved unreachable.
- * @returns never; always throws.
- */
-function assertNever(value: never): never {
-  throw new DecisionError(
-    `unhandled decision question type: ${JSON.stringify(value)}`,
-    'DECISION_PROVIDER_ERROR',
-  )
 }
 
 /** True for a fetch/`AbortSignal` abort, surfaced as `DECISION_ABORTED`. */

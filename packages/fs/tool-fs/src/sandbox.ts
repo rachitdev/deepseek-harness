@@ -16,6 +16,7 @@ import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandb
 import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, sandboxDenialMarker, sandboxPermissionsDescription, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { FsError } from '@deepseek-ai/dsh-fs'
+import { remediateFsError } from './error.ts'
 
 /** The two escalation arguments a mutating tool may carry (advertised only under a confining backend). */
 export interface FsEscalationArgs {
@@ -141,4 +142,28 @@ export class FsSandboxController {
     if (agent === undefined) return true
     return this.ctx.get('approval')?.policyOf(agent.session) !== 'never'
   }
+}
+
+/**
+ * Translate a failed guarded mutation into its model-facing error.
+ *
+ * A sandbox denial becomes the shared `[sandbox: …]` marker the model already
+ * recognizes from bash; guarded mutation failures receive their stable
+ * diagnostic; anything else passes through unchanged.
+ *
+ * @param error - the failure thrown by the filesystem mutation path.
+ * @param sandbox - the controller that maps the denial.
+ * @param policy - the policy resolved for this call.
+ * @param exec - the execution whose hint advertising is derived.
+ * @param displayPath - the path rendered into the diagnostic.
+ * @returns never; this function always throws.
+ */
+export function rethrowMutationFailure(
+  error: unknown,
+  sandbox: FsSandboxController,
+  policy: SandboxExecutionPolicy | undefined,
+  exec: ToolExecution,
+  displayPath: string,
+): never {
+  throw remediateFsError(sandbox.mapError(error, policy, sandbox.advertiseHint(exec)), displayPath)
 }

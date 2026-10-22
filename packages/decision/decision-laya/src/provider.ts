@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { isIP } from 'node:net'
 import { isAbsolute, join } from 'node:path'
-import { DecisionError } from '@deepseek-ai/dsh-decision'
+import { DecisionError, toSingleAnswerWireQuestion } from '@deepseek-ai/dsh-decision'
 import type {
   DecisionAnswer,
   DecisionProvider,
@@ -60,16 +60,7 @@ const USER_AGENT = 'deepseek-harness/0.0.1'
  * @returns the question formatted for Laya.
  */
 export function toLayaQuestion(question: DecisionQuestion): LayaQuestion {
-  switch (question.type) {
-    case 'choice':
-      return { type: 'choice', instructions: question.instructions, criteria: question.criteria }
-    case 'score':
-      return { type: 'score', instructions: question.instructions, criteria: question.criteria }
-    case 'boolean':
-      return { type: 'noul', instructions: question.instructions }
-    default:
-      return assertNever(question)
-  }
+  return toSingleAnswerWireQuestion(question)
 }
 
 /**
@@ -423,13 +414,6 @@ function raceWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T>
       },
     )
   })
-}
-
-function assertNever(value: never): never {
-  throw new DecisionError(
-    `unhandled decision question type: ${JSON.stringify(value)}`,
-    'DECISION_PROVIDER_ERROR',
-  )
 }
 
 function isAbortError(error: unknown): boolean {

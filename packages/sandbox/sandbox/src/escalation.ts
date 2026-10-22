@@ -145,13 +145,13 @@ export function mapTextWithoutEscalationHint<T extends { readonly type: string; 
   omit: boolean,
 ): T[] | undefined {
   if (!omit) return undefined
-  let changed = false
-  const next = blocks.map((block) => {
-    if (block.type !== 'text' || block.text === undefined || !block.text.includes('[sandbox: escalation available')) return block
-    changed = true
-    return { ...block, text: withoutEscalationHint(block.text) }
+  const hintedText = (block: T): string | undefined =>
+    block.type === 'text' && block.text?.includes('[sandbox: escalation available') ? block.text : undefined
+  if (!blocks.some(block => hintedText(block) !== undefined)) return undefined
+  return blocks.map((block) => {
+    const text = hintedText(block)
+    return text === undefined ? block : { ...block, text: withoutEscalationHint(text) }
   })
-  return changed ? next : undefined
 }
 
 /**

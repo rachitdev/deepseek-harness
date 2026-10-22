@@ -8,6 +8,7 @@ import type {} from '@deepseek-ai/dsh-working-directory'
 import { createHash } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { latestUserTaskText } from '@deepseek-ai/dsh-agent'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-decision'
 import { adjudicateSkillSelection, type SkillAdjudication } from '@deepseek-ai/dsh-decision-consumers'
@@ -244,7 +245,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (cascade !== undefined && exec.agent !== undefined) void cascade.compare(exec.agent, args.name)
       let routing: SkillAdjudication | undefined
       if (decision !== undefined && exec.agent !== undefined) {
-        const request = latestUserTask(exec.agent, skillAdjudicationMaxTaskChars)
+        const request = latestUserTaskText(exec.agent, skillAdjudicationMaxTaskChars, 'Load the model-selected skill for the current task.')
         const candidates = shortlistSkills(summaries.filter(isModelInvocable), args.name, request, skillAdjudicationMaxCandidates)
         try {
           routing = await adjudicateSkillSelection(decision, {
@@ -612,21 +613,6 @@ function shortlistScore(skill: SkillSummary, request: string, queryTokens: Reado
 
 function tokens(text: string): Set<string> {
   return new Set(text.toLowerCase().split(/[^a-z0-9]+/u).filter(token => token.length >= 3))
-}
-
-function latestUserTask(agent: Agent, maxChars: number): string {
-  const messages = agent.session.deriveMessages()
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (message?.role !== 'user' || message.source.kind !== 'user') continue
-    const text = message.content
-      .filter(block => block.type === 'text')
-      .map(block => block.text)
-      .join('\n')
-      .trim()
-    if (text.length > 0) return text.slice(0, maxChars)
-  }
-  return 'Load the model-selected skill for the current task.'
 }
 
 /**
