@@ -1,0 +1,19 @@
+[package]
+name = "dsh-cordis-compat"
+description = "Legacy cordis-rust 0.2 API (Value-payload events, Arc<dyn Plugin>) implemented on top of jincdream/cordis-rs-core."
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.85"
+
+[lib]
+# Keeps `use cordis::...` working unchanged across dsh-rs and its tests.
+name = "cordis"
+
+[dependencies]
+# Pinned by Cargo.lock; updated with `scripts/update-kernel.sh`.
+cordis-core = { package = "cordis-rs-core", git = "https://github.com/jincdream/cordis-rs", rev = "85036f6ef0fa95f9fcea60632bf451d7101a3787" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures = "0.3"
+tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }

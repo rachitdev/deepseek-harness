@@ -1,0 +1,21 @@
+{
+  "bundles": ["base"],
+  "plugins": {
+    "web": { "searchProvider": "exa", "searchApiKeyEnv": "EXA_API_KEY" },
+    "approvals": { "ask": ["bash", "write_file", "edit_file"], "default": "allow", "timeoutMs": 120000 },
+    "compaction": { "triggerTokens": 60000, "keepRecentTurns": 2 },
+    "subagent": { "maxDepth": 1, "maxConcurrent": 4, "timeoutMs": 600000 },
+    "goal": { "remind": true },
+    "ask-user": {},
+    "permission": {},
+    "plan": {}
+  },
+  "config": {
+    "provider": "omniroute",
+    "model": "auto/best-coding",
+    "store_dir": "/tmp/dsh-sessions",
+    "adapters": {
+      "omniroute": { "base_url": "http://localhost:20128/v1", "api_key_env": "OMNIROUTE_API_KEY" }
+    }
+  }
+}

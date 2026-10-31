@@ -1,0 +1,93 @@
+[package]
+name = "dsh-rs"
+description = "The dsh agent harness, collapsed into one crate: plugins, typed events, manifest validation, multi-provider LLM seam, and the dsh CLI."
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/redoop/dsh-rs"
+keywords = ["agent", "llm", "plugin", "cli", "harness"]
+categories = ["command-line-utilities", "development-tools"]
+
+[lib]
+name = "dsh_rs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dsh"
+path = "src/main.rs"
+
+[dependencies]
+deepseek-harness-sdk = { git = "https://github.com/42ch-dev/dsh-rust-sdk", rev = "5ead7b9" }
+# The kernel: jincdream/cordis-rs behind the cordis-compat shim (lib name stays `cordis`).
+cordis = { path = "crates/cordis-compat", package = "dsh-cordis-compat" }
+dsh-plugin-contract = { version = "0.2", package = "dsh-plugin-contract" }
+
+tokio = { version = "1.50", features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+    "time",
+    "process",
+    "io-util",
+    "fs",
+    "signal",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Maintained BPE encodings for context accounting (not provider billing).
+tiktoken-rs = "0.12.1"
+thiserror = "2"
+futures = "0.3"
+
+# OpenAI-compatible LLM adapter (the `openai` feature, enabled by default).
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"], optional = true }
+futures-util = "0.3"
+bytes = "1"
+
+# Attachment storage: content digests and the base64 an upload carries.
+sha2 = "0.10"
+base64 = "0.22"
+form_urlencoded = "1"
+
+# Tools (bash/glob/grep) and dynamic-plugin loading.
+regex = "1"
+libloading = "0.8"
+
+# Terminal chat UI (dsh chat).
+ratatui = "0.29"
+unicode-width = "0.2"
+unicode-segmentation = "1"
+hyper = { version = "1.12.0", features = ["http1", "server"] }
+hyper-util = { version = "0.1.21", features = ["tokio", "server", "http1"] }
+http-body-util = "0.1.5"
+http = "1.5.0"
+tokio-tungstenite = "0.26"
+tokio-util = "0.7"
+zstd = "0.13"
+# Version tokens of message feedback: TS reads them back as UUIDs.
+uuid = { version = "1", default-features = false, features = ["v4"] }
+libc = "0.2"
+nix = { version = "0.29", default-features = false, features = ["term", "process", "signal", "fs", "ioctl"] }
+vt100 = { path = "vendor/vt100" }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+# Session-log export archive (`GET /api/session.export`): deflate through flate2 only.
+zip = { version = "7", default-features = false, features = ["deflate-flate2"] }
+serde_norway = "0.9"
+# Zone names are validated against the bundled database, so the answer does not
+# depend on the host machine. Pinned to the version this port was tested with.
+jiff = { version = "=0.2.37", default-features = false, features = ["std", "tzdb-bundle-always"] }
+
+[features]
+default = ["openai"]
+openai = ["dep:reqwest"]
+
+# Local development: resolve workspace-internal deps from the working tree
+# even before they are published. `cargo publish` ignores [patch].
+[patch.crates-io]
+dsh-plugin-contract = { path = "crates/dsh-plugin-contract" }
+
+[profile.dev]
+opt-level = 1
+
+[dev-dependencies]
+tempfile = "3"

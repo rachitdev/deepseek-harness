@@ -1,0 +1,30 @@
+{
+  "bundles": ["base"],
+  "plugins": {
+    "cortexdb-memory": { "restUrl": "http://127.0.0.1:47822", "recallTopK": 3, "readOnly": false },
+    "skillforge-router": { "autoHint": true },
+    "skills": { "dirs": ["${DSH_HOME}/skills"] },
+    "mcp-client": {
+      "servers": {
+        "jev_review": { "command": "${DSH_HOME}/bin/jev-review-server", "toolCallTimeoutMs": 60000 }
+      }
+    },
+    "ts-dsh-bridge": {
+      "enabled": false,
+      "dshBin": "${DSH_TS_CHECKOUT}/apps/cli/lib/bin.js",
+      "profile": "sdk",
+      "patches": ["${DSH_RS_TS_PATCH}"],
+      "dshHome": "${DSH_TS_HOME}",
+      "sessionCwd": ".",
+      "provider": "omniroute",
+      "model": "cx/gpt-6-astra"
+    }
+  },
+  "config": {
+    "provider": "omniroute",
+    "model": "auto/best-coding",
+    "adapters": {
+      "omniroute": { "base_url": "http://localhost:20128/v1", "api_key_env": "OMNIROUTE_API_KEY" }
+    }
+  }
+}
